@@ -30,18 +30,33 @@ Prerequisites (see [ADR 0002](docs/adr/0002-language-and-build-toolchain.md)):
 - CUDA Toolkit 12.6
 - CMake 3.31 or newer
 
-The build, the `titan` program and the single `check` command are set up in the first implementation milestone (M0, see [docs/plans/](docs/plans/)). This section will list the exact build and run commands once they exist.
+Build and run from the repository root in PowerShell:
+
+```powershell
+. ./scripts/dev-env.ps1; Enter-TitanDevEnv
+cmake --preset release
+cmake --build --preset release
+./build/release/apps/titan.exe info
+scripts/check.ps1
+```
+
+`Enter-TitanDevEnv` loads the MSVC 14.38 environment. `titan info` prints the version and the CUDA devices it finds. `scripts/check.ps1` is the single check command; see [CONTRIBUTING.md](CONTRIBUTING.md) for the one-time formatter setup it needs.
 
 ## Commands
 
 | Command | What it does |
 | --- | --- |
-| `check` (set up in M0) | Builds everything, runs all tests and the repository checks (layer rules, docs, secrets). CI runs the same command. |
+| `scripts/check.ps1 [-Preset debug\|release]` | Checks formatting, builds with warnings as errors, runs all tests including the layer-rule check, and prints `check: OK`. CI runs the same command. |
+| `scripts/format.ps1 [-Fix]` | Checks C++/CUDA formatting with the pinned clang-format, or rewrites the files with `-Fix`. |
+| `ctest --preset debug` | Runs the test suite of a debug build. CUDA tests skip themselves when no GPU is present. |
+| `titan --version` | Prints the library version. |
+| `titan info` | Prints the version and the CUDA devices found. |
 
 ## Documentation
 
 - [Requirements](docs/product/requirements.md)
 - [Architecture overview](docs/architecture/overview.md)
+- [Math notes](docs/math/README.md)
 - [Architecture decision records](docs/adr/README.md)
 - [Contributing](CONTRIBUTING.md)
 - [Security policy](SECURITY.md)
