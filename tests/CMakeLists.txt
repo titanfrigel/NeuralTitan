@@ -8,8 +8,10 @@ target_include_directories(titan_test_harness PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}
 add_executable(titan_tests harness/main.cpp)
 target_sources(titan_tests PRIVATE
   core/harness_test.cpp
+  core/error_test.cpp
+  core/device_test.cpp
 )
-target_link_libraries(titan_tests PRIVATE titan_test_harness)
+target_link_libraries(titan_tests PRIVATE titan_test_harness titan_core)
 add_test(NAME unit COMMAND titan_tests)
 
 add_executable(harness_selftest_failing harness/main.cpp harness/selftest_failing.cpp)

@@ -3,7 +3,9 @@ configure_file(
   "${CMAKE_BINARY_DIR}/generated/core/version.hpp"
   @ONLY)
 
-add_library(titan_core STATIC version.cpp)
+add_library(titan_core STATIC
+  error.cpp
+  device.cpp)
 
 target_include_directories(titan_core
   PUBLIC
