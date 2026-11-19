@@ -2,7 +2,7 @@
 
 ## What it computes
 
-Nothing numeric. This note explains how a tensor's elements are laid out in memory, which operations copy them and which only reinterpret them, and how device memory is allocated. Every later op relies on these rules.
+Nothing numeric, so the forward, backward and shapes sections of the [template](README.md) do not apply. This note explains how a tensor's elements are laid out in memory, which operations copy them and which only reinterpret them, and how device memory is allocated. Every later op relies on these rules.
 
 ## Row-major layout
 
@@ -39,7 +39,7 @@ Training allocates and frees tensors of the same few sizes on every step. `cudaM
 
 `CudaCachingAllocator` avoids this by keeping freed blocks instead of returning them to the driver:
 
-1. A request is rounded up to a multiple of 512 bytes, so near-equal sizes share a bucket and every block is suitably aligned.
+1. A request is rounded up to a multiple of 512 bytes, so near-equal sizes share a bucket and block sizes stay multiples of 512.
 2. If a freed block of exactly that rounded size is cached, it is reused.
 3. Otherwise `cudaMalloc` provides a new block. If it fails with out-of-memory, the allocator releases the whole cache and retries once before throwing.
 

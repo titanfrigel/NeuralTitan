@@ -18,7 +18,7 @@ namespace titan {
 // succeed once the cache is emptied.
 //
 // Sizes are rounded up to a multiple of 512 bytes, so near-equal requests share
-// a bucket and every block stays aligned for vectorized access. Reuse is by
+// a bucket and block sizes stay multiples of 512. Reuse is by
 // exact rounded size only; there is no splitting or coalescing, which keeps the
 // bookkeeping easy to follow.
 class CudaCachingAllocator {

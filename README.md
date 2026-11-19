@@ -40,7 +40,7 @@ cmake --build --preset release
 scripts/check.ps1
 ```
 
-`Enter-TitanDevEnv` loads the MSVC 14.38 environment. `titan info` prints the version and the CUDA devices it finds. `scripts/check.ps1` is the single check command; see [CONTRIBUTING.md](CONTRIBUTING.md) for the one-time formatter setup it needs.
+`Enter-TitanDevEnv` loads the MSVC 14.38 environment. `titan info` prints the CPU thread count and the CUDA device name, memory and compute capability (or `CUDA: not available`); `titan --version` prints the version. `scripts/check.ps1` is the single check command and defaults to the release preset; see [CONTRIBUTING.md](CONTRIBUTING.md) for the one-time formatter setup it needs.
 
 ## Commands
 
@@ -50,7 +50,7 @@ scripts/check.ps1
 | `scripts/format.ps1 [-Fix]` | Checks C++/CUDA formatting with the pinned clang-format, or rewrites the files with `-Fix`. |
 | `ctest --preset debug` | Runs the test suite of a debug build. CUDA tests skip themselves when no GPU is present. |
 | `titan --version` | Prints the library version. |
-| `titan info` | Prints the version and the CUDA devices found. |
+| `titan info` | Prints the CPU thread count and the CUDA device name, memory and compute capability, or that CUDA is not available. |
 
 ## Documentation
 
