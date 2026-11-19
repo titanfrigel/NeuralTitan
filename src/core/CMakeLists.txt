@@ -5,6 +5,7 @@ configure_file(
 
 add_library(titan_core STATIC
   cuda_allocator.cpp
+  cuda_check.cpp
   error.cpp
   device.cpp
   storage.cpp
@@ -15,4 +16,7 @@ target_include_directories(titan_core
     "${PROJECT_SOURCE_DIR}/src"
     "${CMAKE_BINARY_DIR}/generated")
 
-target_link_libraries(titan_core PUBLIC CUDA::cudart)
+# Private: no public core header includes a CUDA header, so layers above core
+# do not see the CUDA runtime. Executables that link titan_core still get
+# cudart, because titan_core is a static library.
+target_link_libraries(titan_core PRIVATE CUDA::cudart)

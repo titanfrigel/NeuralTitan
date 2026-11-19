@@ -6,6 +6,7 @@
 #include <cstring>
 #include <limits>
 
+#include "core/cuda_check.hpp"
 #include "core/error.hpp"
 
 namespace titan {

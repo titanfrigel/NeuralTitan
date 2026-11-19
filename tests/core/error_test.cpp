@@ -1,3 +1,6 @@
+#include <cuda_runtime.h>
+
+#include "core/cuda_check.hpp"
 #include "core/error.hpp"
 #include "harness/cuda.hpp"
 #include "harness/test.hpp"

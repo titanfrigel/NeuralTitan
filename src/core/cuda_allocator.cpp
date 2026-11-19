@@ -1,7 +1,10 @@
 #include "core/cuda_allocator.hpp"
 
+#include <cuda_runtime.h>
+
 #include <string>
 
+#include "core/cuda_check.hpp"
 #include "core/error.hpp"
 
 namespace titan {
