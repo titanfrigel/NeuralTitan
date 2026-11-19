@@ -61,3 +61,15 @@ add_test(NAME layers_repo
   COMMAND ${CMAKE_COMMAND}
     -DSRC_DIR=${PROJECT_SOURCE_DIR}/src
     -P ${LAYER_CHECK_SCRIPT})
+
+# CLI smoke tests. $<TARGET_FILE:titan> keeps these independent of the order
+# in which apps/ and tests/ are added.
+add_test(NAME cli_version COMMAND $<TARGET_FILE:titan> --version)
+set_tests_properties(cli_version PROPERTIES
+  PASS_REGULAR_EXPRESSION "^titan 0\.1\.0")
+
+add_test(NAME cli_info COMMAND $<TARGET_FILE:titan> info)
+set_tests_properties(cli_info PROPERTIES PASS_REGULAR_EXPRESSION "CUDA: ")
+
+add_test(NAME cli_unknown_command COMMAND $<TARGET_FILE:titan> bogus)
+set_tests_properties(cli_unknown_command PROPERTIES WILL_FAIL TRUE)
