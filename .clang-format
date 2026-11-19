@@ -1,0 +1,20 @@
+# C++ and CUDA style, checked by scripts/format.ps1 with the clang-format
+# version pinned in tools/requirements-dev.txt.
+BasedOnStyle: Google
+Language: Cpp
+Standard: c++20
+IndentWidth: 4
+ContinuationIndentWidth: 4
+AccessModifierOffset: -4
+ColumnLimit: 80
+BreakBeforeBraces: Attach
+DerivePointerAlignment: false
+PointerAlignment: Left
+AllowShortFunctionsOnASingleLine: All
+AllowShortIfStatementsOnASingleLine: WithoutElse
+AllowShortLoopsOnASingleLine: true
+SpacesBeforeTrailingComments: 2
+SortIncludes: CaseSensitive
+# Keep the existing blocks: the file's own header, then <system> headers,
+# then "project" headers, each separated by a blank line.
+IncludeBlocks: Preserve
