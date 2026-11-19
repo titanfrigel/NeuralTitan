@@ -16,7 +16,8 @@ endif()
 foreach(expected
     "nn may not include runtime"
     "ops/cpu may not include ops/cuda"
-    "ops/cpu may not include cuda_runtime.h")
+    "ops/cpu may not include cuda_runtime.h"
+    "ops/cpu may not include core/cuda_check.hpp")
   string(FIND "${output}" "${expected}" position)
   if(position EQUAL -1)
     message(FATAL_ERROR "output does not contain '${expected}'")

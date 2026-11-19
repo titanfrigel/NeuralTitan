@@ -229,7 +229,7 @@ Decisions are recorded as ADRs; see the [decision index](../adr/README.md).
 
 ## 10. Layer rules
 
-`→` means "may include headers from and link to". Every layer may use the C++ standard library. Only `core` and `ops/cuda` include CUDA runtime headers, and only `ops/cuda` may include and link cuBLAS; other layers reach the GPU only through `core` and `ops`.
+`→` means "may include headers from and link to". Every layer may use the C++ standard library. Only `core` and `ops/cuda` include CUDA runtime headers, and only `ops/cuda` may include and link cuBLAS; other layers reach the GPU only through `core` and `ops`. The public `core` headers (`tensor.hpp`, `storage.hpp`, `device.hpp`, `error.hpp`) include no CUDA header. The one `core` header that does, `core/cuda_check.hpp` with `TITAN_CUDA_CHECK`, counts as a CUDA runtime header and is likewise limited to `core` and `ops/cuda`. `titan_core` links `CUDA::cudart` privately.
 
 | Layer or module | May depend on | Must not depend on |
 | --- | --- | --- |
@@ -252,7 +252,7 @@ Checkpoint save and load for optimizer state lives in `runtime`, which may see b
 Enforcement:
 
 - Each layer is its own CMake static library whose `target_link_libraries` lists only its allowed layers, so a forbidden call fails to link.
-- A project script (`scripts/check_layers`, written with the repository tooling) scans every `#include "..."` under `src/` and fails on any include that points to a forbidden layer.
+- `scripts/check_layers.cmake`, run by the CTest entry `layers_repo`, scans every project `#include "..."` under `src/` and fails on any include that points to a forbidden layer. It also applies the system-header rule: `cuda_runtime.h`, `cuda.h`, `cuda_runtime_api.h` and `core/cuda_check.hpp` only in `core` and `ops/cuda`, and `cublas_v2.h` only in `ops/cuda`.
 - Both run in the single `check` step, locally and in CI.
 
 ## 11. Risks and technical debt

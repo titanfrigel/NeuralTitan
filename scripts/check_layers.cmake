@@ -37,10 +37,14 @@ set(ALLOW_cli "runtime;model;optim;tokenizer;nn;io;ops;core")
 set(ALL_LAYERS
   core io tokenizer ops/cpu ops/cuda ops nn optim model runtime cli)
 
-# System headers that only some layers may include: the CUDA runtime headers
-# stay in core and ops/cuda so the rest of the code reaches the GPU through
-# core and ops, and cuBLAS stays in ops/cuda alone.
-set(CUDA_RUNTIME_HEADERS cuda_runtime.h cuda.h cuda_runtime_api.h)
+# Headers that only some layers may include: the CUDA runtime headers stay in
+# core and ops/cuda so the rest of the code reaches the GPU through core and
+# ops, and cuBLAS stays in ops/cuda alone. core/cuda_check.hpp is listed with
+# the runtime headers because it includes <cuda_runtime.h> itself: a layer
+# that includes it would see the CUDA runtime as surely as one that includes
+# the system header, although every layer may otherwise include core.
+set(CUDA_RUNTIME_HEADERS
+  cuda_runtime.h cuda.h cuda_runtime_api.h core/cuda_check.hpp)
 set(CUDA_RUNTIME_LAYERS core ops/cuda)
 set(CUBLAS_HEADERS cublas_v2.h)
 set(CUBLAS_LAYERS ops/cuda)
