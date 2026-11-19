@@ -1,0 +1,10 @@
+build/
+models/
+data/
+runs/
+tools/.venv/
+__pycache__/
+*.exe
+*.lib
+*.exp
+*.pdb
