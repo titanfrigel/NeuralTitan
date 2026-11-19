@@ -24,10 +24,12 @@ set(CMAKE_CUDA_EXTENSIONS OFF)
 
 find_package(CUDAToolkit 12.6 REQUIRED)
 
+# Warnings are errors (ADR 0008): /W4 /WX for MSVC, and for nvcc every
+# warning is an error with /W4 /WX forwarded to the host compiler.
 if(MSVC)
   add_compile_options(
-    "$<$<COMPILE_LANGUAGE:CXX>:/W4;/permissive-;/utf-8>"
-    "$<$<COMPILE_LANGUAGE:CUDA>:-Xcompiler=/W4,/utf-8>")
+    "$<$<COMPILE_LANGUAGE:CXX>:/W4;/WX;/permissive-;/utf-8>"
+    "$<$<COMPILE_LANGUAGE:CUDA>:-Werror=all-warnings;-Xcompiler=/W4,/WX,/utf-8>")
 endif()
 
 enable_testing()

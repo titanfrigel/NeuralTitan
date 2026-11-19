@@ -24,10 +24,13 @@ public:
 }  // namespace titan
 
 // Precondition check. `msg` is only evaluated when the check fails and may be
-// a C string or a std::string.
+// a C string or a std::string. The result goes through a non-const variable so
+// that a constant `cond` does not trigger MSVC's "conditional expression is
+// constant" warning (C4127).
 #define TITAN_CHECK(cond, msg)                                     \
     do {                                                           \
-        if (!(cond)) {                                             \
+        bool titan_check_ok = static_cast<bool>(cond);             \
+        if (!titan_check_ok) {                                     \
             ::titan::throw_error(                                  \
                 __FILE__, __LINE__,                                \
                 std::string("check failed: " #cond ": ") + (msg)); \
