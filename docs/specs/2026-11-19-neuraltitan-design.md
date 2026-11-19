@@ -32,7 +32,7 @@ Readability and understanding beat performance everywhere they conflict.
 - Competitive performance with PyTorch/cuBLAS.
 
 ### Anti-goals (a failure even if it works)
-- Any third-party library in the build (no cuBLAS, cuDNN, CUTLASS, Eigen, JSON libraries, test frameworks). The only allowed dependencies are the C++ standard library and the CUDA runtime.
+- Any third-party library in the build (no cuDNN, CUTLASS, Eigen, JSON libraries, test frameworks). The only allowed dependencies are the C++ standard library and the CUDA runtime. The one exception is cuBLAS, as an optional, off-by-default GEMM backend (ADR 0006); the project's own GEMM kernels stay the default.
 - "Magic" that hides the math: a generic autograd engine in v1, or code transcribed from llm.c / PyTorch without the author being able to explain it.
 - CUDA kernels that are not checked against the CPU reference.
 
@@ -163,7 +163,7 @@ Each milestone ends with something runnable and tested.
 GPT-2 preset and GPT-2 124M loading; kernel optimization and flash attention; mixed precision; a compute-graph autograd built on top of the modules (approach B); mixture-of-experts.
 
 ## 8. Decided by the author
-- Dependencies: C++ standard library and CUDA runtime only; no cuBLAS.
+- Dependencies: C++ standard library and CUDA runtime only, except optional cuBLAS for GEMM (ADR 0006, decided after the spec's first approval).
 - Gradients: hand-written backward per module, verified by gradient checks.
 - CPU reference first, CUDA verified against it.
 - Architecture family: modern open-model style (Llama-like decoder).
