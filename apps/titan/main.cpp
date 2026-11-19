@@ -1,5 +1,6 @@
 // titan command-line entry point. M0 only offers --version and info.
 #include <cstdlib>
+#include <exception>
 #include <iostream>
 #include <string_view>
 #include <thread>
@@ -50,6 +51,10 @@ int main(int argc, char** argv) {
     try {
         return run(argc, argv);
     } catch (const titan::Error& e) {
+        std::cerr << "error: " << e.what() << '\n';
+        return kExitError;
+    } catch (const std::exception& e) {
+        // Anything else that escapes, such as std::bad_alloc.
         std::cerr << "error: " << e.what() << '\n';
         return kExitError;
     }
