@@ -1,0 +1,23 @@
+# Store text with LF line endings in the repository and the working copy.
+* text=auto eol=lf
+
+# Windows batch files need CRLF to run correctly.
+*.bat text eol=crlf
+*.cmd text eol=crlf
+
+# Binary files: never normalise or diff as text.
+*.png binary
+*.jpg binary
+*.jpeg binary
+*.gif binary
+*.ico binary
+*.pdf binary
+*.bin binary
+*.safetensors binary
+*.npy binary
+*.gz binary
+*.zip binary
+*.exe binary
+*.dll binary
+*.lib binary
+*.pdb binary
