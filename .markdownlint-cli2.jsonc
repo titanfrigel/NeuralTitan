@@ -17,6 +17,9 @@
     ".github/scripts/senior-standards/**",
     "docs/adr/README.md",
     // A one-line import of AGENTS.md for Claude Code, not a document.
-    "CLAUDE.md"
+    "CLAUDE.md",
+    // Copied verbatim from senior-standards; a pull request body starts at
+    // level-2 headings under the title, so it has no top-level heading.
+    ".github/pull_request_template.md"
   ]
 }
