@@ -28,7 +28,7 @@ Prerequisites (see [ADR 0002](docs/adr/0002-language-and-build-toolchain.md)):
 - Windows 11 with an NVIDIA GPU (developed on compute capability 8.6)
 - Visual Studio with the MSVC **14.38** toolset (CUDA 12.6 does not support newer toolsets)
 - CUDA Toolkit 12.6
-- CMake 3.31 or newer
+- CMake 3.28 or newer
 
 Build and run from the repository root in PowerShell:
 
@@ -48,7 +48,7 @@ scripts/check.ps1
 | --- | --- |
 | `scripts/check.ps1 [-Preset debug\|release]` | Checks formatting, builds with warnings as errors, runs all tests including the layer-rule check, and prints `check: OK`. CI runs the same command. |
 | `scripts/format.ps1 [-Fix]` | Checks C++/CUDA formatting with the pinned clang-format, or rewrites the files with `-Fix`. |
-| `ctest --preset debug` | Runs the test suite of a debug build. CUDA tests skip themselves when no GPU is present. |
+| `ctest --preset release` | Runs the test suite of the release build (`ctest --preset debug` after building the debug preset). CUDA tests skip themselves when no GPU is present. |
 | `titan --version` | Prints the library version. |
 | `titan info` | Prints the CPU thread count and the CUDA device name, memory and compute capability, or that CUDA is not available. |
 

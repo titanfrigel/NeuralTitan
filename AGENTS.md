@@ -29,7 +29,7 @@ Run from the repository root in PowerShell:
 
 - `. ./scripts/dev-env.ps1; Enter-TitanDevEnv`: load the MSVC 14.38 environment (once per shell).
 - `cmake --preset release` then `cmake --build --preset release`: configure and build (`debug` preset also exists). The program is `build/<preset>/apps/titan.exe`; `titan --version` and `titan info` are its commands.
-- `ctest --preset debug`: run the tests.
+- `ctest --preset release`: run the tests of the release build (`ctest --preset debug` after building the debug preset).
 - `scripts/check.ps1 [-Preset debug|release]`: the single check: format check, build with warnings as errors, all tests including the layer check. Prints `check: OK`. CI runs it.
 - `scripts/format.ps1 [-Fix]`: check or fix formatting with clang-format 20.1.8. One-time setup: `python -m venv tools/.venv`, then `tools/.venv/Scripts/python -m pip install -r tools/requirements-dev.txt`.
 - `git config core.hooksPath .githooks`: enable the gitleaks pre-commit hook (once per clone).
