@@ -4,8 +4,10 @@ configure_file(
   @ONLY)
 
 add_library(titan_core STATIC
+  cuda_allocator.cpp
   error.cpp
-  device.cpp)
+  device.cpp
+  storage.cpp)
 
 target_include_directories(titan_core
   PUBLIC
