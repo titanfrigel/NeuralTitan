@@ -18,7 +18,26 @@ All code, comments, commit messages, documentation and pull requests are written
 
 ## Checks
 
-Run the `check` entry point before pushing; CI runs the same command. It builds everything, runs the tests, and checks layer rules, docs and secrets. It is created in milestone M0 (see `docs/plans/`), and this section will give its exact command once it exists.
+Run the `check` entry point before pushing; CI runs the same command:
+
+```powershell
+powershell -NoProfile -File scripts/check.ps1
+```
+
+It checks formatting, builds everything with warnings as errors, runs the tests and checks the layer rules. It uses the `release` preset; add `-Preset debug` for a debug build. CI also lints the docs, checks their links and scans for secrets.
+
+The formatter is the clang-format pinned in `tools/requirements-dev.txt`. Install it once into the development venv from the repository root:
+
+```powershell
+python -m venv tools/.venv
+tools/.venv/Scripts/python -m pip install -r tools/requirements-dev.txt
+```
+
+`check` fails on unformatted C++ and CUDA files. Rewrite them in place with:
+
+```powershell
+powershell -NoProfile -File scripts/format.ps1 -Fix
+```
 
 ## Tests
 
@@ -32,7 +51,12 @@ Coverage is not enforced.
 
 ## Hooks
 
-A secret scanner (gitleaks) runs as a pre-commit hook and again in CI. The hook setup is added with the repository tooling in milestone M0, and this section will give the one-time install command then.
+A secret scanner (gitleaks) runs as a pre-commit hook and again in CI. The hook scans the staged changes and blocks the commit when it finds a secret. Set it up once per clone:
+
+```powershell
+winget install Gitleaks.Gitleaks
+git config core.hooksPath .githooks
+```
 
 ## Dependencies
 
