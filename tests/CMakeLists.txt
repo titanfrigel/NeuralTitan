@@ -12,6 +12,7 @@ target_sources(titan_tests PRIVATE
   core/device_test.cpp
   core/allocator_test.cpp
   core/storage_test.cpp
+  core/tensor_test.cpp
 )
 target_link_libraries(titan_tests PRIVATE titan_test_harness titan_core)
 add_test(NAME unit COMMAND titan_tests)
