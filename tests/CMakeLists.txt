@@ -67,9 +67,11 @@ add_test(NAME layers_repo
 
 # CLI smoke tests. $<TARGET_FILE:titan> keeps these independent of the order
 # in which apps/ and tests/ are added.
+# The dots of the version are escaped so they only match literal dots.
+string(REPLACE "." "\\." _titan_version_re "${PROJECT_VERSION}")
 add_test(NAME cli_version COMMAND $<TARGET_FILE:titan> --version)
 set_tests_properties(cli_version PROPERTIES
-  PASS_REGULAR_EXPRESSION "^titan 0\.1\.0")
+  PASS_REGULAR_EXPRESSION "^titan ${_titan_version_re}")
 
 add_test(NAME cli_info COMMAND $<TARGET_FILE:titan> info)
 set_tests_properties(cli_info PROPERTIES PASS_REGULAR_EXPRESSION "CUDA: ")
