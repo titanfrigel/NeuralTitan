@@ -29,7 +29,7 @@ This ADR supersedes ADR 0006.
 ## Considered options
 
 | Option | Verdict |
-|---|---|
+| --- | --- |
 | Own kernels, fully optimized and default (ADR 0006's staged path) | Rejected: one to two weeks of GPU tuning with little LLM insight, and a risk to NFR-1. |
 | **Own naive and tiled kernels for learning; cuBLAS as the default GEMM** | **Chosen.** |
 | cuBLAS only, no own GPU GEMM | Rejected: loses the measured roofline intuition for about one day saved. |
@@ -49,6 +49,7 @@ Chosen: the build links the C++ standard library, the CUDA runtime and **cuBLAS*
 - **Parity.** cuBLAS runs in FP32 without TF32 tensor-core math, so results stay comparable with the CPU reference.
 
 The project still writes its own:
+
 - test harness;
 - JSON parser;
 - safetensors reader;

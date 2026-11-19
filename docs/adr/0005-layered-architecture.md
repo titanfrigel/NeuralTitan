@@ -21,7 +21,7 @@ NeuralTitan is a library of composable LLM building blocks, read and reviewed by
 ## Considered options
 
 | Option | Verdict |
-|---|---|
+| --- | --- |
 | Layered, with swappable device backends inside `ops` | Chosen. Calls follow the math directly. Only the device boundary gets an interface, the one place it pays off. The structure resembles PyTorch, llm.c and llama.cpp. |
 | Hexagonal (ports and adapters) | Rejected. It makes every input and output swappable, but it adds 5–8 interfaces and mapping code that sit between the reader and the math. The scenarios it serves (servers, bindings, several data sources) are non-goals. |
 | Clean / onion | Rejected: built for long-lived business-domain systems; the most ceremony. |
@@ -31,13 +31,14 @@ NeuralTitan is a library of composable LLM building blocks, read and reviewed by
 
 Chosen: a layered architecture in which each layer depends only on the layers below it:
 
-```
+```text
 cli → runtime → model → nn / optim → ops → core
 ```
 
 Two helper layers sit alongside: `tokenizer` and `io`. Device polymorphism lives only in `ops`: one device-dispatching interface, with independent `cpu` and `cuda` implementations behind it.
 
 The layer rules are listed in the architecture overview and enforced two ways:
+
 1. each layer is its own CMake library target, linked only to the layers it may use;
 2. an include-direction check script runs in the project's `check` step.
 

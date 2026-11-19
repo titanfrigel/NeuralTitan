@@ -29,6 +29,7 @@ Modern LLMs are usually learned through high-level frameworks (PyTorch, Hugging 
 ## Functional requirements
 
 Tensor and operations
+
 - FR-1. A tensor type (FP32, row-major, up to 4 dimensions) that lives on the CPU or the GPU, with explicit copies between devices. (G1)
 - FR-2. Every operation has a CPU reference implementation and a CUDA implementation behind one device-dispatching interface. (G1, G4)
 - FR-3. Operations cover:
@@ -44,6 +45,7 @@ Tensor and operations
   - the backward counterpart of each. (G1, G2)
 
 Modules and models
+
 - FR-4. A module interface with forward, hand-written backward, and parameter enumeration. Gradients accumulate across calls. (G1, G5)
 - FR-5. Modules: Embedding, Linear, RMSNorm, LayerNorm, grouped-query attention with RoPE and a KV cache, SwiGLU MLP, GELU MLP, TransformerBlock, LM head (tied or untied), cross-entropy loss. (G1)
 - FR-6. A model is assembled from a JSON config. Each transformer block has its own:
@@ -55,6 +57,7 @@ Modules and models
 - FR-7. A `llama-style` preset ships with the library. (G1)
 
 Tokenizers
+
 - FR-8. A character-level tokenizer built from a corpus. (G2)
 - FR-9. A byte-level BPE tokenizer that can:
   - train merges on a corpus;
@@ -62,6 +65,7 @@ Tokenizers
   - load a Hugging Face `tokenizer.json`, including the GPT-2/SmolLM2 pre-tokenization split and special tokens. (G2, G4)
 
 Training
+
 - FR-10. A data pipeline that tokenizes a corpus once into a binary token file and yields `B × T` training windows with next-token targets. (G2)
 - FR-11. A trainer:
   - runs forward, loss, backward, gradient clipping and the AdamW step;
@@ -72,6 +76,7 @@ Training
 - FR-12. Checkpoints save and restore model weights and optimizer state, so a training run can resume. (G2)
 
 Inference
+
 - FR-13. Generation:
   - prefills the prompt into the KV cache;
   - decodes token by token, streaming text to stdout;
@@ -79,9 +84,11 @@ Inference
 - FR-14. A safetensors loader maps Hugging Face Llama tensor names onto the model's parameters, converting BF16/FP16 to FP32. (G4)
 
 Interface
+
 - FR-15. A `titan` command-line program with `tokenizer train`, `train` and `generate` subcommands, and `--device cpu|cuda` on each. (G2, G3)
 
 Documentation
+
 - FR-16. Each module and op family has a math note in `docs/math/` covering:
   - what it computes;
   - the forward equations;
@@ -114,7 +121,7 @@ Documentation
 ## Success metrics
 
 | Metric | Baseline | Target |
-|---|---|---|
+| --- | --- | --- |
 | CUDA ops with a passing CPU-parity test | 0 | 100% |
 | Modules with a passing gradient check | 0 | 100% |
 | M1: TinyShakespeare CPU run | — | < 30 min; samples recognisably Shakespeare-like |

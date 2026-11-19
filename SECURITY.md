@@ -15,7 +15,7 @@ Report suspected vulnerabilities privately. Do not open a public issue.
 There are no releases; only the latest `main` receives fixes.
 
 | Version | Supported |
-|---|---|
+| --- | --- |
 | `main` (latest) | Yes |
 | Older commits | No |
 

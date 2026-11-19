@@ -14,6 +14,7 @@ Frameworks hide how an LLM actually works. NeuralTitan implements every part fro
 - KV-cached generation.
 
 Correctness is demonstrated, not assumed:
+
 - every CUDA kernel is checked against a CPU reference;
 - every gradient is checked numerically;
 - the library reproduces the outputs of the real SmolLM2-135M model.
@@ -34,7 +35,7 @@ The build, the `titan` program and the single `check` command are set up in the 
 ## Commands
 
 | Command | What it does |
-|---|---|
+| --- | --- |
 | `check` (set up in M0) | Builds everything, runs all tests and the repository checks (layer rules, docs, secrets). CI runs the same command. |
 
 ## Documentation

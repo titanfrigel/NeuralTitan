@@ -20,7 +20,7 @@ ADR 0003 limits the build to the C++ standard library and the CUDA runtime, so t
 ## Considered options
 
 | Option | Verdict |
-|---|---|
+| --- | --- |
 | Standard library and CUDA runtime only (ADR 0003 as is) | Rejected: no fallback if the hand-written GEMM misses the compute budget. |
 | **Own kernels primary; cuBLAS optional for GEMM, behind a build option and a runtime switch** | **Chosen.** |
 | cuBLAS as the default GEMM | Rejected: the own kernels would become dead weight, against the learning goal. |
@@ -36,6 +36,7 @@ Chosen: the build links only the C++ standard library and the CUDA runtime. The 
 - **Tests and benchmarks.** When cuBLAS is built in, the parity tests also check the own GEMM against it, and the matmul benchmark reports own versus cuBLAS throughput.
 
 The project still writes its own:
+
 - test harness;
 - JSON parser;
 - safetensors reader;
