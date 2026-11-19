@@ -12,7 +12,8 @@ Set-Location (Join-Path $PSScriptRoot '..')
 & (Join-Path $PSScriptRoot 'format.ps1')
 if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
 
-# Put MSVC 14.38 on PATH; works from a plain PowerShell.
+# Put the MSVC toolset (14.38, or TITAN_MSVC_TOOLSET) on PATH; works from a
+# plain PowerShell.
 . (Join-Path $PSScriptRoot 'dev-env.ps1')
 Enter-TitanDevEnv
 
