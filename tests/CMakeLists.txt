@@ -44,3 +44,20 @@ add_selftest(harness_detects_missing_throw SelfTest.ThrowsNothing
   "FAIL SelfTest.ThrowsNothing .*did not throw")
 add_selftest(harness_detects_wrong_throw_type SelfTest.ThrowsWrongType
   "FAIL SelfTest.ThrowsWrongType .*did not throw")
+
+# Layer include rules (docs/architecture/overview.md section 10). The fixtures
+# under layer_check/ are only scanned as text and belong to no target.
+set(LAYER_CHECK_SCRIPT ${PROJECT_SOURCE_DIR}/scripts/check_layers.cmake)
+add_test(NAME layers_clean_fixture
+  COMMAND ${CMAKE_COMMAND}
+    -DSRC_DIR=${CMAKE_CURRENT_SOURCE_DIR}/layer_check/clean/src
+    -P ${LAYER_CHECK_SCRIPT})
+add_test(NAME layers_violation_fixture
+  COMMAND ${CMAKE_COMMAND}
+    -DSRC_DIR=${CMAKE_CURRENT_SOURCE_DIR}/layer_check/violation/src
+    -DCHECK_SCRIPT=${LAYER_CHECK_SCRIPT}
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/layer_check/expect_violations.cmake)
+add_test(NAME layers_repo
+  COMMAND ${CMAKE_COMMAND}
+    -DSRC_DIR=${PROJECT_SOURCE_DIR}/src
+    -P ${LAYER_CHECK_SCRIPT})
