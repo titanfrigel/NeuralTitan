@@ -41,6 +41,8 @@ endfunction()
 
 add_selftest(harness_detects_failure SelfTest.AlwaysFails
   "FAIL SelfTest.AlwaysFails .*1 == 2 \\(1 vs 2\\)")
+add_selftest(harness_prints_float_digits SelfTest.FloatsDifferInLastDigit
+  "FAIL SelfTest.FloatsDifferInLastDigit .*\\(1 vs 1\\.00000012\\)")
 add_selftest(harness_reports_unexpected_exception SelfTest.UnexpectedException
   "FAIL SelfTest.UnexpectedException .*unexpected exception: boom")
 add_selftest(harness_detects_missing_throw SelfTest.ThrowsNothing

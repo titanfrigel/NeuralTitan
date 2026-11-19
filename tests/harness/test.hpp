@@ -1,10 +1,13 @@
 #pragma once
 
 #include <cmath>
+#include <iomanip>
 #include <iosfwd>
+#include <limits>
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <type_traits>
 
 namespace titan::test {
 
@@ -41,6 +44,11 @@ template <typename T>
 std::string show(const T& value) {
     if constexpr (requires(std::ostream& os, const T& v) { os << v; }) {
         std::ostringstream os;
+        // The default 6 significant digits can print two different floats
+        // as the same number; max_digits10 always tells them apart.
+        if constexpr (std::is_floating_point_v<T>) {
+            os << std::setprecision(std::numeric_limits<T>::max_digits10);
+        }
         os << value;
         return os.str();
     } else {
