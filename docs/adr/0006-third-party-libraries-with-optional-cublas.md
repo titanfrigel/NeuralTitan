@@ -1,5 +1,5 @@
 ---
-status: accepted
+status: superseded
 date: 2026-11-19
 packages: [cuBLAS]
 ---
@@ -55,6 +55,7 @@ OpenMP remains excluded; CPU parallelism uses `std::thread`.
 
 ## Links
 
+- Superseded by [ADR 0007: Third-party libraries in the build, with cuBLAS as the default GEMM](0007-cublas-default-gemm.md)
 - [ADR 0003: Third-party libraries in the build](0003-no-third-party-libraries.md) (superseded by this ADR)
 - [ADR 0004: Golden reference tooling](0004-golden-reference-tooling.md)
 - [cuBLAS documentation](https://docs.nvidia.com/cuda/cublas/)

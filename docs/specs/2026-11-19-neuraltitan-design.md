@@ -32,7 +32,7 @@ Readability and understanding beat performance everywhere they conflict.
 - Competitive performance with PyTorch/cuBLAS.
 
 ### Anti-goals (a failure even if it works)
-- Any third-party library in the build (no cuDNN, CUTLASS, Eigen, JSON libraries, test frameworks). The only allowed dependencies are the C++ standard library and the CUDA runtime. The one exception is cuBLAS, as an optional, off-by-default GEMM backend (ADR 0006); the project's own GEMM kernels stay the default.
+- Any third-party library in the build (no cuDNN, CUTLASS, Eigen, JSON libraries, test frameworks). The only allowed dependencies are the C++ standard library and the CUDA runtime. The one exception is cuBLAS, the default GEMM (ADR 0007). The project's own naive and tiled GEMM kernels are kept for learning.
 - "Magic" that hides the math: a generic autograd engine in v1, or code transcribed from llm.c / PyTorch without the author being able to explain it.
 - CUDA kernels that are not checked against the CPU reference.
 
@@ -92,7 +92,7 @@ Each op has one signature in `ops/` that dispatches on the tensors' device to `c
 - AdamW update
 - backward counterparts for each of the above
 
-CUDA matmul is written in stages, each kept and benchmarked: naive → shared-memory tiling → register tiling. Attention in v1 materializes the score matrix (no flash attention).
+The production GEMM is cuBLAS (ADR 0007). The project also writes a naive and a shared-memory tiled CUDA GEMM. Both are kept, tested, selectable at runtime and benchmarked against cuBLAS, with a roofline analysis in the matmul math note. Attention in v1 materializes the score matrix (no flash attention).
 
 ### 5.3 nn
 ```cpp
@@ -163,7 +163,7 @@ Each milestone ends with something runnable and tested.
 GPT-2 preset and GPT-2 124M loading; kernel optimization and flash attention; mixed precision; a compute-graph autograd built on top of the modules (approach B); mixture-of-experts.
 
 ## 8. Decided by the author
-- Dependencies: C++ standard library and CUDA runtime only, except optional cuBLAS for GEMM (ADR 0006, decided after the spec's first approval).
+- Dependencies: C++ standard library and CUDA runtime only, plus cuBLAS as the default GEMM (ADRs 0006 and 0007, decided after the spec's first approval).
 - Gradients: hand-written backward per module, verified by gradient checks.
 - CPU reference first, CUDA verified against it.
 - Architecture family: modern open-model style (Llama-like decoder).
@@ -182,7 +182,7 @@ GPT-2 preset and GPT-2 124M loading; kernel optimization and flash attention; mi
 - **Compute budget:**
   - M1 (CPU, TinyShakespeare) completes in under 30 minutes.
   - M6 (GPU, TinyStories) completes overnight (≤ ~8 hours), reaching a validation loss of about 1.5 or lower.
-  - These targets decide how far matmul optimization must go: register tiling is required if the naive and shared-memory kernels cannot meet the M6 budget.
+  - With cuBLAS as the default GEMM (ADR 0007), the budget mainly constrains the model size and token count chosen for M6.
 
 ## 9. Proposed by the designer (correctable)
 - SmolLM2-135M as the pretrained target, because it is a true Llama-architecture model that fits the 8 GB GPU in FP32 and uses byte-level BPE.

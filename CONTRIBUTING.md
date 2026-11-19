@@ -36,7 +36,7 @@ A secret scanner (gitleaks) runs as a pre-commit hook and again in CI. The hook 
 
 ## Dependencies
 
-The library links only the C++ standard library, the CUDA runtime and, optionally, cuBLAS (see [ADR 0006](docs/adr/0006-third-party-libraries-with-optional-cublas.md)). Anything else is out of scope by design.
+The library links only the C++ standard library, the CUDA runtime and cuBLAS (for matrix multiplication only; see [ADR 0007](docs/adr/0007-cublas-default-gemm.md)). Anything else is out of scope by design.
 
 Any new direct dependency, including development tooling under `tools/`, needs an accepted ADR (architecture decision record) in `docs/adr/` that lists it, in the same pull request. CI runs a dependency check and fails the pull request without one.
 

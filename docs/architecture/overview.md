@@ -34,7 +34,7 @@ C4Context
 - **Layered architecture with swappable device backends** (ADR 0005). Calls follow the math top to bottom. Device polymorphism exists only in `ops`, behind one dispatching interface with independent CPU and CUDA implementations.
 - **Module objects with hand-written backward** (design spec, approach A). Every `nn` module implements `forward`, `backward` and parameter enumeration. Composite modules call their children's backward in reverse order.
 - **CPU reference first.** Every op is written first as plain CPU code, then as a CUDA kernel that is tested against it. Every module's backward is checked against finite differences.
-- **C++20, CUDA 12.6, MSVC 14.38, CMake** (ADR 0002). **No third-party libraries** in the build, except **optional cuBLAS for GEMM** behind a build option and a runtime switch; the project's own kernels remain the default (ADR 0006).
+- **C++20, CUDA 12.6, MSVC 14.38, CMake** (ADR 0002). **No third-party libraries** in the build except **cuBLAS, the default GEMM**. The project's own naive and tiled GEMM kernels are kept for learning, parity and roofline measurements, selectable at runtime (ADR 0007).
 - **Independent golden reference** from Hugging Face `transformers` for the pretrained-model tests (ADR 0004).
 
 ## 3. Building blocks
@@ -64,10 +64,10 @@ Library layers, bottom to top:
 
 | Layer | Responsibility | Technology | ADR |
 |---|---|---|---|
-| `core` | `Tensor`, `Storage`, `Device`, CUDA caching allocator, seeded RNG, error checking | C++20, CUDA runtime | 0002, 0006 |
-| `io` | JSON parser, safetensors reader, checkpoint binary format, bounds-checked binary reading | C++20 | 0006 |
-| `tokenizer` | Character tokenizer, byte-level BPE (train, encode, decode, load `tokenizer.json`), Unicode category tables | C++20 | 0006 |
-| `ops` | Device-dispatching operations; `ops/cpu` reference implementations; `ops/cuda` kernels, plus an optional cuBLAS GEMM path | C++20, CUDA, optional cuBLAS | 0002, 0005, 0006 |
+| `core` | `Tensor`, `Storage`, `Device`, CUDA caching allocator, seeded RNG, error checking | C++20, CUDA runtime | 0002, 0007 |
+| `io` | JSON parser, safetensors reader, checkpoint binary format, bounds-checked binary reading | C++20 | 0007 |
+| `tokenizer` | Character tokenizer, byte-level BPE (train, encode, decode, load `tokenizer.json`), Unicode category tables | C++20 | 0007 |
+| `ops` | Device-dispatching operations; `ops/cpu` reference implementations; `ops/cuda` kernels; GEMM through cuBLAS by default, with own naive and tiled kernels selectable | C++20, CUDA, cuBLAS | 0002, 0005, 0007 |
 | `nn` | `Module`, `Parameter`, Embedding, Linear, RMSNorm, LayerNorm, Attention (GQA, RoPE, KV cache), SwiGLU, GeluMLP, TransformerBlock, LMHead, CrossEntropyLoss | C++20 | 0005 |
 | `optim` | AdamW, learning-rate schedules, gradient clipping | C++20 | 0005 |
 | `model` | `ModelConfig`, model assembly from config, presets, mapping Hugging Face weights to parameters, checkpoint save/load | C++20 | 0005 |
@@ -180,7 +180,7 @@ flowchart LR
 Decisions are recorded as ADRs; see the [decision index](../adr/README.md).
 
 - [ADR 0002: Language and build toolchain](../adr/0002-language-and-build-toolchain.md)
-- [ADR 0006: Third-party libraries in the build, with optional cuBLAS](../adr/0006-third-party-libraries-with-optional-cublas.md) (supersedes ADR 0003)
+- [ADR 0007: Third-party libraries in the build, with cuBLAS as the default GEMM](../adr/0007-cublas-default-gemm.md) (supersedes ADRs 0003 and 0006)
 - [ADR 0004: Golden reference tooling](../adr/0004-golden-reference-tooling.md)
 - [ADR 0005: Architecture style](../adr/0005-layered-architecture.md)
 
@@ -229,7 +229,7 @@ Decisions are recorded as ADRs; see the [decision index](../adr/README.md).
 
 ## 10. Layer rules
 
-`→` means "may include headers from and link to". Every layer may use the C++ standard library. Only `core` and `ops/cuda` include CUDA runtime headers, and only `ops/cuda` may include and link cuBLAS (when `TITAN_WITH_CUBLAS` is on); other layers reach the GPU only through `core` and `ops`.
+`→` means "may include headers from and link to". Every layer may use the C++ standard library. Only `core` and `ops/cuda` include CUDA runtime headers, and only `ops/cuda` may include and link cuBLAS; other layers reach the GPU only through `core` and `ops`.
 
 | Layer or module | May depend on | Must not depend on |
 |---|---|---|
@@ -258,7 +258,7 @@ Enforcement:
 
 | Item | Kind (risk or debt) | Mitigation or plan |
 |---|---|---|
-| Hand-written matmul too slow to meet the M6 ~8 h budget | Risk | Staged kernels (naive → shared-memory → register tiling), benchmarked at M2. If they still fall short, switch GEMM to the optional cuBLAS backend (ADR 0006) for the M6 run. Revisit at M2. |
+| M6 ~8 h budget missed | Risk | GEMM uses cuBLAS by default (ADR 0007), so the remaining cost is in own non-GEMM kernels and materialized attention. Profile at M2; if over budget, shrink the M6 model or token count. Revisit at M2. |
 | Materialized attention scores limit context length in 8 GB | Risk | Keep context ≤ 1024 in v1 training configs. Flash-style attention is listed as a later stage. Revisit if M6 needs longer context. |
 | Logits drift from the reference beyond 1e-3 (summation order) | Risk | FP32 reference, per-layer intermediate dumps from `tools/` to localize divergence, accumulation order documented. Revisit at M5. |
 | CUDA code untested in CI (no GPU runners) | Debt | CUDA tests run locally before merge, and the PR template asks for it. Revisit if a GPU runner becomes available. |

@@ -1,6 +1,6 @@
 # NeuralTitan
 
-A from-scratch C++/CUDA library for building, training and running modern decoder-only LLMs, with no third-party libraries. This file is the single source of project memory for Claude Code and OpenCode.
+A from-scratch C++/CUDA library for building, training and running modern decoder-only LLMs, with no third-party libraries apart from cuBLAS for matrix multiplication. This file is the single source of project memory for Claude Code and OpenCode.
 
 ## Project setup
 
@@ -17,7 +17,7 @@ A from-scratch C++/CUDA library for building, training and running modern decode
 ## Stack
 
 - C++20 (host and device), CUDA Toolkit 12.6 targeting `sm_86`, MSVC host toolset **14.38** (not the VS 2026 default 14.50, which CUDA 12.6 does not support), CMake. See [ADR 0002](docs/adr/0002-language-and-build-toolchain.md).
-- Library dependencies: the C++ standard library and the CUDA runtime only. The one exception is cuBLAS, an optional GEMM backend that is off by default (`TITAN_WITH_CUBLAS`, `--gemm own|cublas`). See [ADR 0006](docs/adr/0006-third-party-libraries-with-optional-cublas.md). The test harness, JSON parser, safetensors reader and every kernel are written in the project.
+- Library dependencies: the C++ standard library, the CUDA runtime and cuBLAS. cuBLAS is used for matrix multiplication only, is the default GEMM, and is linked only by `ops/cuda`. The project's own naive and tiled GEMM kernels are kept for learning and parity, selectable with `--gemm cublas|naive|tiled`. See [ADR 0007](docs/adr/0007-cublas-default-gemm.md). The test harness, JSON parser, safetensors reader and every other kernel are written in the project.
 - Development-only tooling: Python with `torch`, `transformers` and `safetensors` in an isolated venv under `tools/`, used only to generate golden fixtures. Never part of the build. See [ADR 0004](docs/adr/0004-golden-reference-tooling.md).
 - Architecture: layered, with swappable device backends in `ops`. See [ADR 0005](docs/adr/0005-layered-architecture.md).
 - No data store, no hosting, no network access at runtime.

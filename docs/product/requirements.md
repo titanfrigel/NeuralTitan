@@ -102,7 +102,7 @@ Documentation
 - NFR-4 Reproducibility: training, sampling and initialization are deterministic for a given seed on a given device. Bit-exact equality between CPU and CUDA is not required.
 - NFR-5 Security: weight files, tokenizer files, checkpoints and configs are untrusted input. All parsers (JSON, safetensors, checkpoint) bounds-check every length and offset and fail with a clear error, never with out-of-bounds memory access. The project handles no credentials or personal data.
 - NFR-6 Readability: the code favours explicit, commented math over cleverness. Optimized kernels keep their naive predecessor alongside them for comparison.
-- NFR-7 Dependencies: only the C++ standard library and the CUDA runtime, plus cuBLAS as an optional, off-by-default GEMM backend (ADR 0006). The project's own GEMM kernels remain the default. Development-only scripts under `tools/` (for golden fixtures and Unicode tables) never enter the build.
+- NFR-7 Dependencies: only the C++ standard library and the CUDA runtime, plus cuBLAS as the default GEMM (ADR 0007). The project's own naive and tiled GEMM kernels are kept, tested and selectable for learning. Development-only scripts under `tools/` (for golden fixtures and Unicode tables) never enter the build.
 
 ## Constraints
 
