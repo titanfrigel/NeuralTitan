@@ -25,21 +25,21 @@ public:
 
 // Precondition check. `msg` is only evaluated when the check fails and may be
 // a C string or a std::string.
-#define TITAN_CHECK(cond, msg)                                             \
-    do {                                                                   \
-        if (!(cond)) {                                                     \
-            ::titan::throw_error(                                          \
-                __FILE__, __LINE__,                                        \
-                std::string("check failed: " #cond ": ") + (msg));         \
-        }                                                                  \
+#define TITAN_CHECK(cond, msg)                                     \
+    do {                                                           \
+        if (!(cond)) {                                             \
+            ::titan::throw_error(                                  \
+                __FILE__, __LINE__,                                \
+                std::string("check failed: " #cond ": ") + (msg)); \
+        }                                                          \
     } while (false)
 
 // Wraps every CUDA runtime call and kernel launch check.
-#define TITAN_CUDA_CHECK(expr)                                             \
-    do {                                                                   \
-        const cudaError_t titan_cuda_status = (expr);                      \
-        if (titan_cuda_status != cudaSuccess) {                            \
-            ::titan::throw_cuda_error(__FILE__, __LINE__, #expr,           \
-                                      titan_cuda_status);                  \
-        }                                                                  \
+#define TITAN_CUDA_CHECK(expr)                                   \
+    do {                                                         \
+        const cudaError_t titan_cuda_status = (expr);            \
+        if (titan_cuda_status != cudaSuccess) {                  \
+            ::titan::throw_cuda_error(__FILE__, __LINE__, #expr, \
+                                      titan_cuda_status);        \
+        }                                                        \
     } while (false)

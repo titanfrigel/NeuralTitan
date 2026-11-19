@@ -19,7 +19,8 @@ CudaCachingAllocator& CudaCachingAllocator::instance() {
 }
 
 std::size_t CudaCachingAllocator::round_up(std::size_t bytes) {
-    return (bytes + kBlockGranularity - 1) / kBlockGranularity * kBlockGranularity;
+    return (bytes + kBlockGranularity - 1) / kBlockGranularity *
+           kBlockGranularity;
 }
 
 void* CudaCachingAllocator::allocate(std::size_t bytes) {
@@ -50,9 +51,10 @@ void* CudaCachingAllocator::allocate(std::size_t bytes) {
         if (status == cudaErrorMemoryAllocation) {
             cudaGetLastError();
             throw_error(__FILE__, __LINE__,
-                        "CUDA out of memory: requested " + std::to_string(size) +
-                            " bytes (allocated " + std::to_string(allocated_bytes_) +
-                            ", cached " + std::to_string(cached_bytes_) + ")");
+                        "CUDA out of memory: requested " +
+                            std::to_string(size) + " bytes (allocated " +
+                            std::to_string(allocated_bytes_) + ", cached " +
+                            std::to_string(cached_bytes_) + ")");
         }
     }
     TITAN_CUDA_CHECK(status);

@@ -59,8 +59,8 @@ void report_failure(const char* file, int line, const std::string& message) {
     Current& state = current();
     state.failed = true;
     if (state.out != nullptr) {
-        *state.out << "FAIL " << state.name << " " << file << ":" << line << ": "
-                   << message << "\n";
+        *state.out << "FAIL " << state.name << " " << file << ":" << line
+                   << ": " << message << "\n";
     }
 }
 
@@ -86,7 +86,8 @@ Summary run_tests(std::string_view filter, std::ostream& out) {
             skipped = true;
             skip_reason = skip.reason;
         } catch (const std::exception& e) {
-            report_failure("<unknown>", 0, std::string("unexpected exception: ") + e.what());
+            report_failure("<unknown>", 0,
+                           std::string("unexpected exception: ") + e.what());
         } catch (...) {
             report_failure("<unknown>", 0, "unexpected non-standard exception");
         }

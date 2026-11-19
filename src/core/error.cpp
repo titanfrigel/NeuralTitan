@@ -5,7 +5,8 @@
 namespace titan {
 
 void throw_error(const char* file, int line, std::string message) {
-    throw Error(std::string(file) + ":" + std::to_string(line) + ": " + message);
+    throw Error(std::string(file) + ":" + std::to_string(line) + ": " +
+                message);
 }
 
 void throw_cuda_error(const char* file, int line, const char* expr,

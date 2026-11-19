@@ -2,8 +2,10 @@
 #include "harness/test.hpp"
 
 TITAN_TEST(Device, ToString) {
-    TITAN_EXPECT_EQ(titan::to_string(titan::Device::CPU), std::string_view("cpu"));
-    TITAN_EXPECT_EQ(titan::to_string(titan::Device::CUDA), std::string_view("cuda"));
+    TITAN_EXPECT_EQ(titan::to_string(titan::Device::CPU),
+                    std::string_view("cpu"));
+    TITAN_EXPECT_EQ(titan::to_string(titan::Device::CUDA),
+                    std::string_view("cuda"));
 }
 
 TITAN_TEST(Device, InfoMatchesAvailability) {

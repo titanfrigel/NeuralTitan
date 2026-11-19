@@ -36,7 +36,8 @@ std::optional<CudaDeviceInfo> cuda_device_info() {
         cudaGetLastError();
         return std::nullopt;
     }
-    return CudaDeviceInfo{prop.name, prop.totalGlobalMem, prop.major, prop.minor};
+    return CudaDeviceInfo{prop.name, prop.totalGlobalMem, prop.major,
+                          prop.minor};
 }
 
 }  // namespace titan

@@ -4,13 +4,9 @@
 
 // Linked into harness_selftest_failing only. CTest runs each test through
 // expect_failure.cmake to prove the runner reports it as a failure.
-TITAN_TEST(SelfTest, AlwaysFails) {
-    TITAN_EXPECT_EQ(1, 2);
-}
+TITAN_TEST(SelfTest, AlwaysFails) { TITAN_EXPECT_EQ(1, 2); }
 
-TITAN_TEST(SelfTest, UnexpectedException) {
-    throw std::runtime_error("boom");
-}
+TITAN_TEST(SelfTest, UnexpectedException) { throw std::runtime_error("boom"); }
 
 TITAN_TEST(SelfTest, ThrowsNothing) {
     TITAN_EXPECT_THROWS((void)0, std::runtime_error);

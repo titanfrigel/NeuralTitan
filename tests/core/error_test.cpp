@@ -17,9 +17,7 @@ TITAN_TEST(Error, CheckThrowsWithContext) {
     TITAN_EXPECT(threw);
 }
 
-TITAN_TEST(Error, CheckPassesSilently) {
-    TITAN_CHECK(true, "x");
-}
+TITAN_TEST(Error, CheckPassesSilently) { TITAN_CHECK(true, "x"); }
 
 TITAN_TEST(Error, CudaCheckReportsErrorName) {
     TITAN_SKIP_IF_NO_CUDA()

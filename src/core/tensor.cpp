@@ -47,8 +47,8 @@ std::int64_t Tensor::validate_shape(const Shape& shape) {
         static_cast<std::int64_t>(sizeof(float));
     std::int64_t count = 1;
     for (std::int64_t d : shape) {
-        TITAN_CHECK(d >= 1,
-                    "every dimension must be >= 1, got shape " + to_string(shape));
+        TITAN_CHECK(d >= 1, "every dimension must be >= 1, got shape " +
+                                to_string(shape));
         // count * d <= kMaxNumel, rearranged so the product never overflows.
         TITAN_CHECK(count <= kMaxNumel / d,
                     "element count overflows for shape " + to_string(shape));
@@ -85,9 +85,9 @@ Tensor Tensor::from_vector(std::span<const float> values, Shape shape,
 
 std::int64_t Tensor::dim(int i) const {
     const int r = rank();
-    TITAN_CHECK(i >= -r && i < r,
-                "dimension " + std::to_string(i) + " out of range for shape " +
-                    to_string(shape_));
+    TITAN_CHECK(i >= -r && i < r, "dimension " + std::to_string(i) +
+                                      " out of range for shape " +
+                                      to_string(shape_));
     return shape_[static_cast<std::size_t>(i < 0 ? i + r : i)];
 }
 
@@ -131,10 +131,9 @@ std::vector<float> Tensor::to_vector() const {
 
 Tensor Tensor::reshape(Shape shape) const {
     const std::int64_t count = validate_shape(shape);
-    TITAN_CHECK(count == numel(),
-                "cannot reshape " + to_string(shape_) + " (" +
-                    std::to_string(numel()) + " elements) to " +
-                    to_string(shape));
+    TITAN_CHECK(count == numel(), "cannot reshape " + to_string(shape_) + " (" +
+                                      std::to_string(numel()) +
+                                      " elements) to " + to_string(shape));
     // Same elements in the same row-major order, so the view needs no copy.
     return Tensor(storage_, offset_, std::move(shape));
 }

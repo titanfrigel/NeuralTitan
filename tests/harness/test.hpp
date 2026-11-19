@@ -65,47 +65,47 @@ std::string show(const T& value) {
         }                                                             \
     } while (false)
 
-#define TITAN_EXPECT_EQ(a, b)                                       \
-    do {                                                            \
-        const auto& titan_lhs = (a);                                \
-        const auto& titan_rhs = (b);                                \
-        if (!(titan_lhs == titan_rhs)) {                            \
-            ::titan::test::report_failure(                          \
-                __FILE__, __LINE__,                                 \
-                std::string(#a " == " #b " (") +                    \
-                    ::titan::test::detail::show(titan_lhs) +        \
-                    " vs " + ::titan::test::detail::show(titan_rhs) + ")"); \
-        }                                                           \
+#define TITAN_EXPECT_EQ(a, b)                                         \
+    do {                                                              \
+        const auto& titan_lhs = (a);                                  \
+        const auto& titan_rhs = (b);                                  \
+        if (!(titan_lhs == titan_rhs)) {                              \
+            ::titan::test::report_failure(                            \
+                __FILE__, __LINE__,                                   \
+                std::string(#a " == " #b " (") +                      \
+                    ::titan::test::detail::show(titan_lhs) + " vs " + \
+                    ::titan::test::detail::show(titan_rhs) + ")");    \
+        }                                                             \
     } while (false)
 
-#define TITAN_EXPECT_NEAR(a, b, tol)                                \
-    do {                                                            \
-        const double titan_lhs = static_cast<double>(a);            \
-        const double titan_rhs = static_cast<double>(b);            \
-        const double titan_tol = static_cast<double>(tol);          \
-        if (!(std::fabs(titan_lhs - titan_rhs) <= titan_tol)) {     \
-            ::titan::test::report_failure(                          \
-                __FILE__, __LINE__,                                 \
-                std::string("|" #a " - " #b "| <= " #tol " (") +    \
-                    ::titan::test::detail::show(titan_lhs) +        \
-                    " vs " + ::titan::test::detail::show(titan_rhs) + ")"); \
-        }                                                           \
+#define TITAN_EXPECT_NEAR(a, b, tol)                                  \
+    do {                                                              \
+        const double titan_lhs = static_cast<double>(a);              \
+        const double titan_rhs = static_cast<double>(b);              \
+        const double titan_tol = static_cast<double>(tol);            \
+        if (!(std::fabs(titan_lhs - titan_rhs) <= titan_tol)) {       \
+            ::titan::test::report_failure(                            \
+                __FILE__, __LINE__,                                   \
+                std::string("|" #a " - " #b "| <= " #tol " (") +      \
+                    ::titan::test::detail::show(titan_lhs) + " vs " + \
+                    ::titan::test::detail::show(titan_rhs) + ")");    \
+        }                                                             \
     } while (false)
 
-#define TITAN_EXPECT_THROWS(expr, ExceptionType)                    \
-    do {                                                            \
-        bool titan_threw_expected = false;                          \
-        try {                                                       \
-            expr;                                                   \
-        } catch (const ExceptionType&) {                            \
-            titan_threw_expected = true;                            \
-        } catch (...) {                                             \
-        }                                                           \
-        if (!titan_threw_expected) {                                \
-            ::titan::test::report_failure(                          \
-                __FILE__, __LINE__,                                 \
-                #expr " did not throw " #ExceptionType);            \
-        }                                                           \
+#define TITAN_EXPECT_THROWS(expr, ExceptionType)                             \
+    do {                                                                     \
+        bool titan_threw_expected = false;                                   \
+        try {                                                                \
+            expr;                                                            \
+        } catch (const ExceptionType&) {                                     \
+            titan_threw_expected = true;                                     \
+        } catch (...) {                                                      \
+        }                                                                    \
+        if (!titan_threw_expected) {                                         \
+            ::titan::test::report_failure(                                   \
+                __FILE__, __LINE__, #expr " did not throw " #ExceptionType); \
+        }                                                                    \
     } while (false)
 
-#define TITAN_SKIP(reason) throw ::titan::test::SkipException{(reason)}
+#define TITAN_SKIP(reason) \
+    throw ::titan::test::SkipException { (reason) }

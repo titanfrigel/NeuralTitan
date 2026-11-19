@@ -62,8 +62,8 @@ TITAN_TEST(Tensor, InvalidShapesThrow) {
                         titan::Error);
     TITAN_EXPECT_THROWS(Tensor::empty({2, 0}, Device::CPU), titan::Error);
     TITAN_EXPECT_THROWS(Tensor::empty({-1}, Device::CPU), titan::Error);
-    TITAN_EXPECT(throws_containing(
-        [] { Tensor::empty({2, 0}, Device::CPU); }, "[2, 0]"));
+    TITAN_EXPECT(throws_containing([] { Tensor::empty({2, 0}, Device::CPU); },
+                                   "[2, 0]"));
 }
 
 TITAN_TEST(Tensor, OverflowingShapeThrows) {
@@ -75,10 +75,10 @@ TITAN_TEST(Tensor, OverflowingShapeThrows) {
 TITAN_TEST(Tensor, FromVectorSizeMismatchThrows) {
     const std::vector<float> five = {1, 2, 3, 4, 5};
     TITAN_EXPECT_THROWS(Tensor::from_vector(five, {2, 3}), titan::Error);
-    TITAN_EXPECT(throws_containing(
-        [&] { Tensor::from_vector(five, {2, 3}); }, "[2, 3]"));
-    TITAN_EXPECT(throws_containing(
-        [&] { Tensor::from_vector(five, {2, 3}); }, "5"));
+    TITAN_EXPECT(throws_containing([&] { Tensor::from_vector(five, {2, 3}); },
+                                   "[2, 3]"));
+    TITAN_EXPECT(
+        throws_containing([&] { Tensor::from_vector(five, {2, 3}); }, "5"));
 }
 
 TITAN_TEST(Tensor, DimOutOfRangeThrows) {
@@ -161,6 +161,6 @@ TITAN_TEST(Tensor, CudaUnavailableThrows) {
     if (titan::cuda_available()) {
         TITAN_SKIP("a CUDA device is present");
     }
-    TITAN_EXPECT(throws_containing(
-        [] { Tensor::zeros({2}, Device::CUDA); }, "CUDA not available"));
+    TITAN_EXPECT(throws_containing([] { Tensor::zeros({2}, Device::CUDA); },
+                                   "CUDA not available"));
 }

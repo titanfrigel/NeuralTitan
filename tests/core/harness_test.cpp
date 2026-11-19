@@ -10,6 +10,4 @@ TITAN_TEST(Harness, ExpectThrowsMatchesType) {
     TITAN_EXPECT_THROWS(throw std::runtime_error("x"), std::runtime_error);
 }
 
-TITAN_TEST(Harness, SkipIsReported) {
-    TITAN_SKIP("demo");
-}
+TITAN_TEST(Harness, SkipIsReported) { TITAN_SKIP("demo"); }

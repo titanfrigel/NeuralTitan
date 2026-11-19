@@ -30,7 +30,8 @@ TITAN_TEST(Allocator, RoundsTo512) {
     const std::size_t allocated_before = alloc.allocated_bytes();
 
     void* ptr = alloc.allocate(1);
-    TITAN_EXPECT_EQ(alloc.allocated_bytes() - allocated_before, std::size_t{512});
+    TITAN_EXPECT_EQ(alloc.allocated_bytes() - allocated_before,
+                    std::size_t{512});
 
     alloc.deallocate(ptr, 1);
     TITAN_EXPECT_EQ(alloc.allocated_bytes(), allocated_before);
@@ -45,8 +46,8 @@ TITAN_TEST(Allocator, OutOfMemoryThrowsAndRecovers) {
         alloc.allocate(std::size_t{1} << 40);
     } catch (const titan::Error& e) {
         threw = true;
-        TITAN_EXPECT(std::string(e.what()).find("requested 1099511627776 bytes") !=
-                     std::string::npos);
+        TITAN_EXPECT(std::string(e.what()).find(
+                         "requested 1099511627776 bytes") != std::string::npos);
     }
     TITAN_EXPECT(threw);
 

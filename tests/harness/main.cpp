@@ -19,6 +19,7 @@ int main(int argc, char** argv) {
         titan::test::list_tests(filter, std::cout);
         return 0;
     }
-    const titan::test::Summary summary = titan::test::run_tests(filter, std::cout);
+    const titan::test::Summary summary =
+        titan::test::run_tests(filter, std::cout);
     return summary.failed == 0 ? 0 : 1;
 }

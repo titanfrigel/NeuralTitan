@@ -55,7 +55,8 @@ private:
     void release_cached_locked();
 
     mutable std::mutex mutex_;
-    std::map<std::size_t, std::vector<void*>> free_blocks_;  // rounded size -> blocks
+    std::map<std::size_t, std::vector<void*>>
+        free_blocks_;  // rounded size -> blocks
     std::size_t cached_bytes_ = 0;
     std::size_t allocated_bytes_ = 0;
 };
