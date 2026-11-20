@@ -4,7 +4,8 @@ add_library(titan_nn STATIC
   linear.cpp
   embedding.cpp
   norm.cpp
-  mlp.cpp)
+  mlp.cpp
+  attention.cpp)
 
 target_include_directories(titan_nn PUBLIC "${PROJECT_SOURCE_DIR}/src")
 target_link_libraries(titan_nn PUBLIC titan_ops titan_core)
