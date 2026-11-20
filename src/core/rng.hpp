@@ -10,7 +10,8 @@ namespace titan {
 // Seeded random number generator. One seed drives initialization, data order
 // and sampling. The engine (std::mt19937_64) has a sequence fixed by the
 // standard; its distributions do not, so the transforms below are our own and
-// give the same values on every platform.
+// give the same values for a given standard library and platform (they use
+// std::log, std::sin and std::cos).
 class Rng {
 public:
     explicit Rng(std::uint64_t seed) : engine_(seed) {}

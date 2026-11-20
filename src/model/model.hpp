@@ -18,10 +18,12 @@ namespace titan::model {
 // A decoder-only language model built from a ModelConfig:
 //   ids -> embed_tokens -> blocks.0 .. blocks.{L-1} -> final_norm -> lm_head
 // giving logits (B, T, vocab). With tied embeddings the head reuses
-// embed_tokens.weight. Parameter names follow Hugging Face Llama naming:
-// "embed_tokens.weight", "blocks.N.attn.q_proj.weight",
-// "blocks.N.norm1.weight", "final_norm.weight" and, untied only,
-// "lm_head.weight". See docs/math/model.md.
+// embed_tokens.weight. Parameter names are "embed_tokens.weight",
+// "blocks.N.attn.q_proj.weight", "blocks.N.norm1.weight",
+// "final_norm.weight" and, untied only, "lm_head.weight". Leaf names follow
+// Hugging Face; the prefixes differ and M5 maps them (blocks.N.attn <->
+// model.layers.N.self_attn, norm1/norm2 <-> input_layernorm/
+// post_attention_layernorm, final_norm <-> model.norm). See docs/math/model.md.
 class Model {
 public:
     // Throws titan::Error for an unknown mlp, norm, position or final_norm

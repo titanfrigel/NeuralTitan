@@ -28,7 +28,7 @@ A from-scratch C++/CUDA library for building, training and running modern decode
 Run from the repository root in PowerShell:
 
 - `. ./scripts/dev-env.ps1; Enter-TitanDevEnv`: load the MSVC 14.38 environment (once per shell).
-- `cmake --preset release` then `cmake --build --preset release`: configure and build (`debug` preset also exists). The program is `build/<preset>/apps/titan.exe`; `titan --version` and `titan info` are its commands.
+- `cmake --preset release` then `cmake --build --preset release`: configure and build (`debug` preset also exists). The program is `build/<preset>/apps/titan.exe`; its commands are `titan --version`, `titan info`, `titan tokenizer train` and `titan train` (below).
 - `build/<preset>/apps/titan.exe tokenizer train --type char --corpus <file> --out <tok.json>`: build and save a character tokenizer.
 - `build/<preset>/apps/titan.exe train --config <cfg.json> --data <corpus.txt> --out <dir> [--tokenizer <tok.json>] [--steps N] [--device cpu|cuda]`: train a model on the CPU (`cuda` arrives in M2) and write the tokenizer, token files and a sample to `<dir>`. `configs/tiny-shakespeare.json` is the M1 config.
 - `ctest --preset release`: run the tests of the release build (`ctest --preset debug` after building the debug preset).
@@ -79,7 +79,7 @@ Planned (created by the milestones; layer names follow the architecture overview
 
 - Errors: throw exceptions derived from `titan::Error` with context (file, tensor or parameter name, shapes).
   - Use `TITAN_CHECK(cond, msg)` for preconditions and `TITAN_CUDA_CHECK` around every CUDA call and kernel launch.
-  - Validate external input only at the `io`, `tokenizer` and `cli` boundaries, bounds-checking every length and offset. Kernels do not validate.
+  - Validate external input only at the `io`, `tokenizer` and `cli` boundaries and in the config parsers built on `io::JsonFields` (`parse_model_config` in `model`, `parse_train_config` in `runtime`), bounds-checking every length and offset. Kernels do not validate.
 - Every op has a CPU reference and a CUDA implementation behind one dispatching function in `ops`. The two device implementations never include each other.
 - Every `nn` module implements `forward`, a hand-written `backward` that accumulates parameter gradients with `+=`, and `parameters`.
 - Tests are written in the same change as the feature. Each one needs:
