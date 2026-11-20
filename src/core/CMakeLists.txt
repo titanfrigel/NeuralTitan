@@ -7,6 +7,8 @@ add_library(titan_core STATIC
   cuda_allocator.cpp
   cuda_check.cpp
   error.cpp
+  parallel.cpp
+  rng.cpp
   device.cpp
   storage.cpp
   tensor.cpp)

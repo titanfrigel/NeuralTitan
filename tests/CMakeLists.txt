@@ -13,6 +13,8 @@ target_sources(titan_tests PRIVATE
   core/allocator_test.cpp
   core/storage_test.cpp
   core/tensor_test.cpp
+  core/rng_test.cpp
+  core/parallel_test.cpp
   core/cuda_toolchain_test.cu
 )
 # The CUDA tests call the runtime directly, so they link cudart themselves
