@@ -221,3 +221,42 @@ TITAN_TEST(Trainer, GradAccumEquivalence) {
     // The comparison is only meaningful if the gradients are not all ~0.
     TITAN_EXPECT(max_grad > 1e-3);
 }
+
+TITAN_TEST(Trainer, SameSeedIsBitReproducible) {
+    // The same seed and config must give the same run, bit for bit: init,
+    // data order and every optimizer step are deterministic.
+    struct Outcome {
+        titan::runtime::TrainResult result;
+        std::vector<float> values;
+    };
+    const auto run = [] {
+        Model m(llama_style(5, 16, 1, 2, 1, 8));
+        Rng init(31);
+        m.init(init);
+        TrainConfig c = small_config();
+        c.steps = 20;
+        c.warmup = 2;
+        c.eval_interval = 10;
+        c.log_interval = 10;
+        std::ostringstream log;
+        Trainer trainer(m, c, repeating_tokens(400), repeating_tokens(100),
+                        log);
+        Outcome out;
+        out.result = trainer.run();
+        for (const titan::nn::Parameter* p : m.parameters()) {
+            const std::vector<float> v = p->value.to_vector();
+            out.values.insert(out.values.end(), v.begin(), v.end());
+        }
+        return out;
+    };
+    const Outcome a = run();
+    const Outcome b = run();
+    TITAN_EXPECT(a.result.final_train_loss == b.result.final_train_loss);
+    TITAN_EXPECT(a.result.final_val_loss == b.result.final_val_loss);
+    TITAN_EXPECT_EQ(a.values.size(), b.values.size());
+    bool identical = true;
+    for (std::size_t i = 0; i < a.values.size(); ++i) {
+        identical = identical && a.values[i] == b.values[i];
+    }
+    TITAN_EXPECT(identical);
+}
