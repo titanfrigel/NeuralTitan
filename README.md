@@ -51,6 +51,47 @@ scripts/check.ps1
 | `ctest --preset release` | Runs the test suite of the release build (`ctest --preset debug` after building the debug preset). CUDA tests skip themselves when no GPU is present. |
 | `titan --version` | Prints the library version. |
 | `titan info` | Prints the CPU thread count and the CUDA device name, memory and compute capability, or that CUDA is not available. |
+| `titan tokenizer train --type char --corpus <file> --out <tok.json>` | Builds a character tokenizer from a corpus and saves it. |
+| `titan train --config <cfg.json> --data <corpus.txt> --out <dir>` | Trains a model on the CPU; see [Training a model](#training-a-model). |
+
+## Training a model
+
+`titan train` trains a small decoder-only model on a text file on the CPU (`--device cuda` arrives in M2):
+
+```powershell
+./build/release/apps/titan.exe train --config configs/tiny-shakespeare.json --data data/tinyshakespeare/input.txt --out runs/m1-shakespeare
+```
+
+Options: `--tokenizer <tok.json>` (use a saved tokenizer instead of building a character tokenizer from the corpus), `--steps N` (overrides `train.steps`; `train.warmup` must stay below it) and `--device cpu|cuda`. The command writes `tokenizer.json` (when it built one), `train.bin` and `val.bin` (the encoded splits; the last `val_fraction` of the tokens validates), and `sample.txt` (500 characters sampled at temperature 0.8) to `--out`, and prints `params`, `time` and `final val_loss`. `titan tokenizer train --type char --corpus <file> --out <tok.json>` builds and saves a character tokenizer on its own.
+
+The TinyShakespeare corpus is not in the repository: download `input.txt` from [karpathy/char-rnn](https://github.com/karpathy/char-rnn/tree/master/data/tinyshakespeare) to `data/tinyshakespeare/` (git-ignored).
+
+## M1 result
+
+`configs/tiny-shakespeare.json` (4 layers, dim 128, 4 heads with 2 KV heads, SwiGLU, RMSNorm, RoPE, tied embeddings, 2000 steps of 16 x 128 tokens, seed 1337), release build, CPU only:
+
+| Measure | Value |
+| --- | --- |
+| Parameters | 734,464 |
+| Wall time | 879 s (14.7 min) |
+| Validation loss | 2.08 at step 200, 1.56 at step 2000 (from about ln 65 = 4.17 at initialization) |
+
+The first 10 lines of the generated sample (prompt: a newline):
+
+```text
+Poor father to my tiger, who Edward how the most,
+That, my fedilent and scorn and and wife?
+
+BENVOLIO:
+I am cousin.
+
+Messenger:
+It is the day rest, lord, secret, but shouldst
+Our serves blessing sing, let him but for my young.
+
+```
+
+The model has learned the play format (speaker names, short lines, punctuation) and English-like words, but not meaning.
 
 ## Documentation
 

@@ -167,7 +167,7 @@ flowchart LR
   - One strategy: exceptions derived from `titan::Error`, carrying a message with context (file, tensor or parameter name, shapes).
   - `TITAN_CHECK(cond, msg)` guards preconditions such as shape compatibility and device agreement.
   - `TITAN_CUDA_CHECK` wraps every CUDA runtime call and checks kernel launches.
-  - External input (JSON, safetensors, checkpoints, token files, tokenizer files, CLI arguments) is validated at the `io`/`tokenizer`/`cli` boundary, where every length and offset is bounds-checked.
+  - External input (JSON, safetensors, checkpoints, token files, tokenizer files, CLI arguments) is validated at the `io`/`tokenizer`/`cli` boundary and in the config parsers built on `io::JsonFields` (`parse_model_config` in `model`, `parse_train_config` in `runtime`), where every length and offset is bounds-checked.
   - The CLI catches at the top level, prints the message to stderr and exits non-zero.
   - Kernels themselves do not validate; their callers guarantee their preconditions.
 - **Logging and observability:** plain text to stdout (training progress: step, loss, tokens/s, learning rate, validation loss) and stderr (errors). The trainer optionally also writes a CSV metrics file per run for plotting. No telemetry.

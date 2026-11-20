@@ -13,11 +13,41 @@ target_sources(titan_tests PRIVATE
   core/allocator_test.cpp
   core/storage_test.cpp
   core/tensor_test.cpp
+  core/rng_test.cpp
+  core/utf8_test.cpp
+  core/parallel_test.cpp
   core/cuda_toolchain_test.cu
+  support/gradcheck.cpp
+  support/gradcheck_test.cpp
+  ops/elementwise_test.cpp
+  ops/reduce_test.cpp
+  ops/matmul_test.cpp
+  ops/softmax_test.cpp
+  ops/norm_test.cpp
+  ops/rope_test.cpp
+  ops/embedding_test.cpp
+  ops/cross_entropy_test.cpp
+  ops/adamw_test.cpp
+  ops/layout_test.cpp
+  nn/linear_test.cpp
+  nn/norm_module_test.cpp
+  nn/mlp_test.cpp
+  nn/embedding_module_test.cpp
+  nn/attention_test.cpp
+  nn/block_test.cpp
+  optim/optim_test.cpp
+  io/json_test.cpp
+  io/token_file_test.cpp
+  tokenizer/char_tokenizer_test.cpp
+  model/config_test.cpp
+  model/model_test.cpp
+  runtime/data_loader_test.cpp
+  runtime/trainer_test.cpp
+  runtime/sampler_test.cpp
 )
 # The CUDA tests call the runtime directly, so they link cudart themselves
 # instead of relying on titan_core, which keeps it private.
-target_link_libraries(titan_tests PRIVATE titan_test_harness titan_core CUDA::cudart)
+target_link_libraries(titan_tests PRIVATE titan_test_harness titan_runtime titan_model titan_tokenizer titan_io titan_optim titan_nn titan_ops titan_core CUDA::cudart)
 add_test(NAME unit COMMAND titan_tests)
 
 add_executable(harness_selftest_failing harness/main.cpp harness/selftest_failing.cpp)
@@ -80,3 +110,40 @@ set_tests_properties(cli_info PROPERTIES PASS_REGULAR_EXPRESSION "CUDA: ")
 
 add_test(NAME cli_unknown_command COMMAND $<TARGET_FILE:titan> bogus)
 set_tests_properties(cli_unknown_command PROPERTIES WILL_FAIL TRUE)
+
+# Training commands on a tiny hand-written corpus (fixtures/cli/README.md).
+set(CLI_FIXTURES ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/cli)
+set(CLI_OUT ${CMAKE_CURRENT_BINARY_DIR}/cli)
+
+add_test(NAME cli_tokenizer_train
+  COMMAND $<TARGET_FILE:titan> tokenizer train --type char
+    --corpus ${CLI_FIXTURES}/tiny_corpus.txt --out ${CLI_OUT}/tok/tokenizer.json)
+
+add_test(NAME cli_train_smoke
+  COMMAND $<TARGET_FILE:titan> train --config ${CLI_FIXTURES}/tiny-config.json
+    --data ${CLI_FIXTURES}/tiny_corpus.txt --out ${CLI_OUT}/smoke)
+set_tests_properties(cli_train_smoke PROPERTIES
+  PASS_REGULAR_EXPRESSION "final val_loss [0-9.]+")
+
+add_test(NAME cli_train_no_newline_corpus
+  COMMAND $<TARGET_FILE:titan> train --config ${CLI_FIXTURES}/tiny-config.json
+    --data ${CLI_FIXTURES}/no_newline_corpus.txt --out ${CLI_OUT}/no_newline)
+set_tests_properties(cli_train_no_newline_corpus PROPERTIES
+  PASS_REGULAR_EXPRESSION "final val_loss [0-9.]+")
+
+# expect_failure.cmake requires exit code 1 and the pattern in the output.
+function(add_cli_failure name pattern)
+  add_test(NAME ${name}
+    COMMAND ${CMAKE_COMMAND}
+      -DEXE=$<TARGET_FILE:titan>
+      "-DARGS=${ARGN}"
+      "-DPATTERN=${pattern}"
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_failure.cmake)
+endfunction()
+
+add_cli_failure(cli_train_cuda_rejected "CUDA backend arrives in M2"
+  "train;--config;${CLI_FIXTURES}/tiny-config.json;--data;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/cuda;--device;cuda")
+add_cli_failure(cli_train_bad_config "n_kv_heads"
+  "train;--config;${CLI_FIXTURES}/bad-config.json;--data;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/bad")
+add_cli_failure(cli_train_short_corpus "too few for a training split"
+  "train;--config;${CLI_FIXTURES}/tiny-config.json;--data;${CLI_FIXTURES}/short_corpus.txt;--out;${CLI_OUT}/short")

@@ -19,3 +19,17 @@ Notes about infrastructure with no gradient, such as tensor memory, replace the 
 | Note | Covers |
 | --- | --- |
 | [Tensor memory](tensor-memory.md) | Row-major layout, views that share storage, host and device memory, the CUDA caching allocator. |
+| [Elementwise ops](elementwise.md) | Add, multiply, scale, SiLU and GELU, with their gradients. |
+| [Reductions](reduce.md) | Sum, sum of squares, row maximum, sum over leading dimensions and the finiteness check. |
+| [Matmul](matmul.md) | Matrix product with transposes and batching, its gradients, and the parallel CPU kernel with its deterministic accumulation order. |
+| [Softmax](softmax.md) | Row softmax and causal softmax, why the mask comes before the maximum, and the backward formula from the softmax Jacobian. |
+| [Normalization](normalization.md) | RMSNorm and LayerNorm, with the backward formulas derived including the projection term. |
+| [RoPE](rope.md) | Rotary position embedding in the half-split layout, the relative-position property, and the backward pass as the inverse rotation. |
+| [Embedding](embedding.md) | Token-id lookup as a row gather, and its backward pass as a scatter-add that sums the gradients of repeated ids. |
+| [Cross-entropy](cross-entropy.md) | Fused softmax cross-entropy with log-sum-exp, and the gradient `(softmax − onehot)/N` derived from it. |
+| [Linear](linear.md) | The affine map `y = x Wᵀ + b` over the last dimension, flattened to rows, and its three gradients. |
+| [Feed-forward blocks](mlp.md) | SwiGLU and the GELU MLP, with the backward chain through the gate, the activation and both projections. |
+| [Attention](attention.md) | Causal grouped-query attention with RoPE: the scaled dot-product, the causal mask, the head layout ops and the group-sum gradient of the shared KV heads, every shape through the layer. |
+| [Transformer block](transformer-block.md) | The pre-norm residual block `h = x + attn(norm1(x))`, `y = h + mlp(norm2(h))`, and how the residual gradient splits into both paths. |
+| [Model](model.md) | The full decoder-only model: the forward chain with shapes, the backward order, weight tying as a sum of two gradients, the GPT-2 initialization and the parameter-count formula. |
+| [AdamW](adamw.md) | AdamW with bias-corrected moments and decoupled weight decay, no decay on rank-1 parameters, global-norm gradient clipping, and the warmup + cosine learning-rate schedule. |
