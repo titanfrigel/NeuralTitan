@@ -41,10 +41,13 @@ target_sources(titan_tests PRIVATE
   tokenizer/char_tokenizer_test.cpp
   model/config_test.cpp
   model/model_test.cpp
+  runtime/data_loader_test.cpp
+  runtime/trainer_test.cpp
+  runtime/sampler_test.cpp
 )
 # The CUDA tests call the runtime directly, so they link cudart themselves
 # instead of relying on titan_core, which keeps it private.
-target_link_libraries(titan_tests PRIVATE titan_test_harness titan_model titan_tokenizer titan_io titan_optim titan_nn titan_ops titan_core CUDA::cudart)
+target_link_libraries(titan_tests PRIVATE titan_test_harness titan_runtime titan_model titan_tokenizer titan_io titan_optim titan_nn titan_ops titan_core CUDA::cudart)
 add_test(NAME unit COMMAND titan_tests)
 
 add_executable(harness_selftest_failing harness/main.cpp harness/selftest_failing.cpp)
