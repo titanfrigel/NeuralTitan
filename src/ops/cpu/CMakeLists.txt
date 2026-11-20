@@ -1,5 +1,6 @@
 add_library(titan_ops_cpu STATIC
-  elementwise.cpp)
+  elementwise.cpp
+  reduce.cpp)
 
 target_include_directories(titan_ops_cpu PUBLIC "${PROJECT_SOURCE_DIR}/src")
 target_link_libraries(titan_ops_cpu PUBLIC titan_core)
