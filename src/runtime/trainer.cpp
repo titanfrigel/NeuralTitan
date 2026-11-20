@@ -13,6 +13,7 @@
 
 #include "core/error.hpp"
 #include "core/rng.hpp"
+#include "io/json_fields.hpp"
 #include "nn/loss.hpp"
 #include "nn/module.hpp"
 #include "ops/elementwise.hpp"
@@ -21,176 +22,73 @@
 
 namespace titan::runtime {
 
-namespace {
-
-// ---- train config parsing -------------------------------------------------
-
-constexpr double kMaxExactInt = 9007199254740992.0;  // 2^53
-
-[[noreturn]] void config_error(const std::string& path,
-                               const std::string& message) {
-    throw_error(__FILE__, __LINE__, "train config: " + path + ": " + message);
-}
-
-const char* kind_name(const io::JsonValue& v) {
-    if (v.is_null()) return "null";
-    if (v.is_bool()) return "a bool";
-    if (v.is_number()) return "a number";
-    if (v.is_string()) return "a string";
-    if (v.is_array()) return "an array";
-    return "an object";
-}
-
-std::string field_path(std::string_view key) {
-    return "train." + std::string(key);
-}
-
-// An integral JSON number >= min_value.
-std::int64_t read_int(const io::JsonValue& v, std::string_view key,
-                      std::int64_t min_value) {
-    const std::string path = field_path(key);
-    if (!v.is_number()) {
-        config_error(path,
-                     std::string("expected an integer, got ") + kind_name(v));
-    }
-    const double d = v.as_number();
-    if (d != std::trunc(d) || std::fabs(d) > kMaxExactInt) {
-        config_error(path, "expected an integer, got " + std::to_string(d));
-    }
-    const auto n = static_cast<std::int64_t>(d);
-    if (n < min_value) {
-        config_error(path, "must be >= " + std::to_string(min_value) +
-                               ", got " + std::to_string(n));
-    }
-    return n;
-}
-
-// A finite JSON number that fits in a float.
-double read_number(const io::JsonValue& v, std::string_view key) {
-    const std::string path = field_path(key);
-    if (!v.is_number()) {
-        config_error(path,
-                     std::string("expected a number, got ") + kind_name(v));
-    }
-    const double d = v.as_number();
-    if (!std::isfinite(d) || std::fabs(d) > std::numeric_limits<float>::max()) {
-        config_error(path, "must be a finite float, got " + std::to_string(d));
-    }
-    return d;
-}
-
-// A float > 0 that does not round to zero.
-float read_positive_float(const io::JsonValue& v, std::string_view key) {
-    const double d = read_number(v, key);
-    if (!(d > 0.0)) {
-        config_error(field_path(key), "must be > 0, got " + std::to_string(d));
-    }
-    const auto f = static_cast<float>(d);
-    if (f == 0.0f) {
-        config_error(field_path(key), "is too small for a float");
-    }
-    return f;
-}
-
-// Reads `key` when present, otherwise keeps the default in `out`.
-template <typename Reader>
-void read_optional(const io::JsonValue& section, std::string_view key,
-                   Reader reader) {
-    if (const io::JsonValue* v = section.find(key)) {
-        reader(*v);
-    }
-}
-
-}  // namespace
-
 TrainConfig parse_train_config(const io::JsonValue& section) {
-    if (!section.is_object()) {
-        config_error("train", std::string("expected an object, got ") +
-                                  kind_name(section));
-    }
-    constexpr std::initializer_list<std::string_view> kKnown = {
-        "batch",         "seq",          "steps",
-        "grad_accum",    "lr",           "min_lr",
-        "warmup",        "weight_decay", "beta1",
-        "beta2",         "eps",          "grad_clip",
-        "eval_interval", "eval_batches", "log_interval",
-        "seed",          "val_fraction"};
-    for (const auto& [key, member] : section.as_object()) {
-        bool known = false;
-        for (std::string_view k : kKnown) {
-            known = known || key == k;
-        }
-        if (!known) {
-            config_error(field_path(key), "unknown key");
-        }
-    }
-    const auto require = [&](std::string_view key) -> const io::JsonValue& {
-        const io::JsonValue* v = section.find(key);
-        if (v == nullptr) {
-            config_error(field_path(key), "missing required field");
-        }
-        return *v;
-    };
+    const io::JsonFields f(
+        section, "train config", "train",
+        {"batch", "seq", "steps", "grad_accum", "lr", "min_lr", "warmup",
+         "weight_decay", "beta1", "beta2", "eps", "grad_clip", "eval_interval",
+         "eval_batches", "log_interval", "seed", "val_fraction"});
 
     TrainConfig c;
-    c.batch = read_int(require("batch"), "batch", 1);
-    c.seq = read_int(require("seq"), "seq", 1);
-    c.steps = read_int(require("steps"), "steps", 1);
-    c.lr = read_positive_float(require("lr"), "lr");
-    const double min_lr = read_number(require("min_lr"), "min_lr");
+    c.batch = f.integer(f.require("batch"), "batch", 1);
+    c.seq = f.integer(f.require("seq"), "seq", 1);
+    c.steps = f.integer(f.require("steps"), "steps", 1);
+    c.lr = f.positive_float(f.require("lr"), "lr");
+    const double min_lr = f.number(f.require("min_lr"), "min_lr");
     if (min_lr < 0.0 || min_lr > static_cast<double>(c.lr)) {
-        config_error(field_path("min_lr"),
-                     "must be in [0, lr], got " + std::to_string(min_lr));
+        f.fail(f.path_of("min_lr"),
+               "must be in [0, lr], got " + std::to_string(min_lr));
     }
     c.min_lr = static_cast<float>(min_lr);
-    c.warmup = read_int(require("warmup"), "warmup", 1);
+    c.warmup = f.integer(f.require("warmup"), "warmup", 1);
     if (c.warmup >= c.steps) {
-        config_error(field_path("warmup"),
-                     "must be < steps " + std::to_string(c.steps) + ", got " +
-                         std::to_string(c.warmup));
+        f.fail(f.path_of("warmup"), "must be < steps " +
+                                        std::to_string(c.steps) + ", got " +
+                                        std::to_string(c.warmup));
     }
-    c.eval_interval = read_int(require("eval_interval"), "eval_interval", 1);
-    c.eval_batches = read_int(require("eval_batches"), "eval_batches", 1);
-    c.log_interval = read_int(require("log_interval"), "log_interval", 1);
-    c.seed = static_cast<std::uint64_t>(read_int(require("seed"), "seed", 0));
+    c.eval_interval = f.integer(f.require("eval_interval"), "eval_interval", 1);
+    c.eval_batches = f.integer(f.require("eval_batches"), "eval_batches", 1);
+    c.log_interval = f.integer(f.require("log_interval"), "log_interval", 1);
+    c.seed =
+        static_cast<std::uint64_t>(f.integer(f.require("seed"), "seed", 0));
 
-    read_optional(section, "grad_accum", [&](const io::JsonValue& v) {
-        c.grad_accum = read_int(v, "grad_accum", 1);
-    });
-    read_optional(section, "grad_clip", [&](const io::JsonValue& v) {
-        c.grad_clip = read_positive_float(v, "grad_clip");
-    });
-    read_optional(section, "eps", [&](const io::JsonValue& v) {
-        c.eps = read_positive_float(v, "eps");
-    });
-    read_optional(section, "weight_decay", [&](const io::JsonValue& v) {
-        const double d = read_number(v, "weight_decay");
+    if (const io::JsonValue* v = f.find("grad_accum")) {
+        c.grad_accum = f.integer(*v, "grad_accum", 1);
+    }
+    if (const io::JsonValue* v = f.find("grad_clip")) {
+        c.grad_clip = f.positive_float(*v, "grad_clip");
+    }
+    if (const io::JsonValue* v = f.find("eps")) {
+        c.eps = f.positive_float(*v, "eps");
+    }
+    if (const io::JsonValue* v = f.find("weight_decay")) {
+        const double d = f.number(*v, "weight_decay");
         if (d < 0.0) {
-            config_error(field_path("weight_decay"),
-                         "must be >= 0, got " + std::to_string(d));
+            f.fail(f.path_of("weight_decay"),
+                   "must be >= 0, got " + std::to_string(d));
         }
         c.weight_decay = static_cast<float>(d);
-    });
-    for (const auto& [key, target] :
-         {std::pair<std::string_view, float*>{"beta1", &c.beta1},
-          std::pair<std::string_view, float*>{"beta2", &c.beta2}}) {
-        read_optional(section, key, [&](const io::JsonValue& v) {
-            const double d = read_number(v, key);
-            if (d < 0.0 || d >= 1.0) {
-                config_error(field_path(key),
-                             "must be in [0, 1), got " + std::to_string(d));
-            }
-            *target = static_cast<float>(d);
-        });
     }
-    read_optional(section, "val_fraction", [&](const io::JsonValue& v) {
-        const double d = read_number(v, "val_fraction");
+    const auto read_beta = [&](std::string_view key, float& out) {
+        if (const io::JsonValue* v = f.find(key)) {
+            const double d = f.number(*v, key);
+            if (d < 0.0 || d >= 1.0) {
+                f.fail(f.path_of(key),
+                       "must be in [0, 1), got " + std::to_string(d));
+            }
+            out = static_cast<float>(d);
+        }
+    };
+    read_beta("beta1", c.beta1);
+    read_beta("beta2", c.beta2);
+    if (const io::JsonValue* v = f.find("val_fraction")) {
+        const double d = f.number(*v, "val_fraction");
         if (!(d > 0.0 && d < 1.0)) {
-            config_error(field_path("val_fraction"),
-                         "must be in (0, 1), got " + std::to_string(d));
+            f.fail(f.path_of("val_fraction"),
+                   "must be in (0, 1), got " + std::to_string(d));
         }
         c.val_fraction = static_cast<float>(d);
-    });
+    }
     return c;
 }
 
@@ -223,6 +121,18 @@ Trainer::Trainer(model::Model& model, TrainConfig config,
       optimizer_(model.parameters(),
                  optim::AdamWConfig{config.lr, config.beta1, config.beta2,
                                     config.eps, config.weight_decay}) {
+    TITAN_CHECK(config.grad_accum >= 1,
+                "Trainer: grad_accum must be >= 1, got " +
+                    std::to_string(config.grad_accum));
+    TITAN_CHECK(config.log_interval >= 1,
+                "Trainer: log_interval must be >= 1, got " +
+                    std::to_string(config.log_interval));
+    TITAN_CHECK(config.eval_interval >= 1,
+                "Trainer: eval_interval must be >= 1, got " +
+                    std::to_string(config.eval_interval));
+    TITAN_CHECK(config.eval_batches >= 1,
+                "Trainer: eval_batches must be >= 1, got " +
+                    std::to_string(config.eval_batches));
     TITAN_CHECK(config.seq <= model.config().context_length,
                 "Trainer: train.seq " + std::to_string(config.seq) +
                     " exceeds the model context_length " +

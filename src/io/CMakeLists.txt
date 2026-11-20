@@ -1,5 +1,6 @@
 add_library(titan_io STATIC
   json.cpp
+  json_fields.cpp
   file.cpp
   token_file.cpp)
 
