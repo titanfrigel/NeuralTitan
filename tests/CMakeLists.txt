@@ -19,6 +19,8 @@ target_sources(titan_tests PRIVATE
   core/cuda_toolchain_test.cu
   support/gradcheck.cpp
   support/gradcheck_test.cpp
+  support/parity.cpp
+  support/parity_test.cpp
   ops/elementwise_test.cpp
   ops/reduce_test.cpp
   ops/matmul_test.cpp
@@ -29,6 +31,7 @@ target_sources(titan_tests PRIVATE
   ops/cross_entropy_test.cpp
   ops/adamw_test.cpp
   ops/layout_test.cpp
+  ops/cuda/elementwise_parity_test.cpp
   nn/linear_test.cpp
   nn/norm_module_test.cpp
   nn/mlp_test.cpp

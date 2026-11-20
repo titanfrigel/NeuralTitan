@@ -19,6 +19,7 @@ Notes about infrastructure with no gradient, such as tensor memory, replace the 
 | Note | Covers |
 | --- | --- |
 | [Tensor memory](tensor-memory.md) | Row-major layout, views that share storage, host and device memory, the CUDA caching allocator. |
+| [CUDA execution](cuda-execution.md) | Grids, blocks, warps and the grid-stride loop, shared memory, deterministic reductions, the default stream, and why the caching allocator is safe on one stream. |
 | [Elementwise ops](elementwise.md) | Add, multiply, scale, SiLU and GELU, with their gradients. |
 | [Reductions](reduce.md) | Sum, sum of squares, row maximum, sum over leading dimensions and the finiteness check. |
 | [Matmul](matmul.md) | Matrix product with transposes and batching, its gradients, and the parallel CPU kernel with its deterministic accumulation order. |

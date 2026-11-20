@@ -4,7 +4,6 @@
 #include "core/error.hpp"
 #include "core/rng.hpp"
 #include "core/tensor.hpp"
-#include "harness/cuda.hpp"
 #include "harness/test.hpp"
 #include "ops/elementwise.hpp"
 #include "support/gradcheck.hpp"
@@ -65,19 +64,6 @@ TITAN_TEST(Elementwise, ShapeMismatchThrows) {
     TITAN_EXPECT_THROWS(ops::silu_backward(a, b), titan::Error);
 }
 
-TITAN_TEST(Elementwise, CudaTensorThrowsM2Message) {
-    TITAN_SKIP_IF_NO_CUDA();
-    const Tensor x = Tensor::zeros({2}, Device::CUDA);
-    try {
-        ops::silu(x);
-        TITAN_EXPECT(false);
-    } catch (const titan::Error& e) {
-        TITAN_EXPECT(std::string(e.what()).find(
-                         "ops::silu: CUDA implementation arrives in M2") !=
-                     std::string::npos);
-    }
-}
-
 TITAN_TEST(Elementwise, SiluValues) {
     const Tensor y = ops::silu(make({0.0f, 1.0f}, {2}));
     const auto v = y.to_vector();
@@ -135,19 +121,4 @@ TITAN_TEST(Elementwise, AddRowwiseShapeMismatchThrows) {
     }
     const Tensor b2 = Tensor::zeros({1, 3}, Device::CPU);
     TITAN_EXPECT_THROWS(ops::add_rowwise_(y, b2), titan::Error);
-}
-
-TITAN_TEST(Elementwise, AddRowwiseCudaThrowsM2Message) {
-    TITAN_SKIP_IF_NO_CUDA();
-    Tensor y = Tensor::zeros({2, 2}, Device::CUDA);
-    const Tensor b = Tensor::zeros({2}, Device::CUDA);
-    try {
-        ops::add_rowwise_(y, b);
-        TITAN_EXPECT(false);
-    } catch (const titan::Error& e) {
-        TITAN_EXPECT(
-            std::string(e.what()).find(
-                "ops::add_rowwise_: CUDA implementation arrives in M2") !=
-            std::string::npos);
-    }
 }
