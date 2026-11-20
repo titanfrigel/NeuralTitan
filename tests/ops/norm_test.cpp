@@ -152,3 +152,29 @@ TITAN_TEST(Norm, WeightShapeMismatchThrows) {
         TITAN_EXPECT(what.find("[3]") != std::string::npos);
     }
 }
+
+TITAN_TEST(Norm, LayerNormBackwardAccumulates) {
+    Rng rng(16);
+    const Tensor x = random_tensor({2, 4}, rng);
+    const Tensor w = random_tensor({4}, rng);
+    const Tensor b = random_tensor({4}, rng);
+    const Tensor dy = random_tensor({2, 4}, rng);
+    Tensor mean = Tensor::zeros({1}, Device::CPU);
+    Tensor inv_std = Tensor::zeros({1}, Device::CPU);
+    ops::layer_norm(x, w, b, kEps, &mean, &inv_std);
+    Tensor dw1 = Tensor::zeros({4}, Device::CPU);
+    Tensor db1 = Tensor::zeros({4}, Device::CPU);
+    Tensor dw2 = Tensor::zeros({4}, Device::CPU);
+    Tensor db2 = Tensor::zeros({4}, Device::CPU);
+    ops::layer_norm_backward(x, w, mean, inv_std, dy, dw1, db1);
+    ops::layer_norm_backward(x, w, mean, inv_std, dy, dw2, db2);
+    ops::layer_norm_backward(x, w, mean, inv_std, dy, dw2, db2);
+    const std::vector<float> a = dw1.to_vector();
+    const std::vector<float> c = dw2.to_vector();
+    const std::vector<float> e = db1.to_vector();
+    const std::vector<float> f = db2.to_vector();
+    for (std::size_t i = 0; i < 4; ++i) {
+        TITAN_EXPECT_NEAR(c[i], 2 * a[i], 1e-6);
+        TITAN_EXPECT_NEAR(f[i], 2 * e[i], 1e-6);
+    }
+}

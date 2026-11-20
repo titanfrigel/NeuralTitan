@@ -2,6 +2,7 @@
 
 #include <cmath>
 #include <cstdint>
+#include <vector>
 
 namespace titan::ops::cpu {
 
@@ -48,7 +49,7 @@ Tensor rms_norm_backward(const Tensor& x, const Tensor& weight,
     const std::int64_t rows = x.numel() / d;
     Tensor dx = Tensor::empty(x.shape(), x.device());
     const float* w = weight.data();
-    float* dw = dweight_acc.data();
+    std::vector<double> dw(static_cast<std::size_t>(d), 0.0);
     for (std::int64_t r = 0; r < rows; ++r) {
         const float* px = x.data() + r * d;
         const float* pd = dy.data() + r * d;
@@ -63,8 +64,13 @@ Tensor rms_norm_backward(const Tensor& x, const Tensor& weight,
         const double proj = inv * inv * inv * dot / static_cast<double>(d);
         for (std::int64_t i = 0; i < d; ++i) {
             pdx[i] = static_cast<float>(inv * pd[i] * w[i] - px[i] * proj);
-            dw[i] += static_cast<float>(pd[i] * px[i] * inv);
+            dw[static_cast<std::size_t>(i)] +=
+                static_cast<double>(pd[i]) * px[i] * inv;
         }
+    }
+    float* dw_out = dweight_acc.data();
+    for (std::int64_t i = 0; i < d; ++i) {
+        dw_out[i] += static_cast<float>(dw[static_cast<std::size_t>(i)]);
     }
     return dx;
 }
@@ -116,8 +122,8 @@ Tensor layer_norm_backward(const Tensor& x, const Tensor& weight,
     const std::int64_t rows = x.numel() / d;
     Tensor dx = Tensor::empty(x.shape(), x.device());
     const float* w = weight.data();
-    float* dw = dweight_acc.data();
-    float* db = dbias_acc.data();
+    std::vector<double> dw(static_cast<std::size_t>(d), 0.0);
+    std::vector<double> db(static_cast<std::size_t>(d), 0.0);
     for (std::int64_t r = 0; r < rows; ++r) {
         const float* px = x.data() + r * d;
         const float* pd = dy.data() + r * d;
@@ -140,9 +146,16 @@ Tensor layer_norm_backward(const Tensor& x, const Tensor& weight,
             const double g = static_cast<double>(pd[i]) * w[i];
             pdx[i] = static_cast<float>(
                 inv * (g - sum_g * inv_d - xhat * sum_gx * inv_d));
-            dw[i] += static_cast<float>(pd[i] * xhat);
-            db[i] += pd[i];
+            dw[static_cast<std::size_t>(i)] += pd[i] * xhat;
+            db[static_cast<std::size_t>(i)] += pd[i];
         }
+    }
+    // One float add per parameter keeps += semantics; the row sum was double.
+    float* dw_out = dweight_acc.data();
+    float* db_out = dbias_acc.data();
+    for (std::int64_t i = 0; i < d; ++i) {
+        dw_out[i] += static_cast<float>(dw[static_cast<std::size_t>(i)]);
+        db_out[i] += static_cast<float>(db[static_cast<std::size_t>(i)]);
     }
     return dx;
 }
