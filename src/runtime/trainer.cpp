@@ -208,18 +208,22 @@ TrainResult Trainer::run() {
             const double tok_per_s =
                 elapsed > 0.0 ? static_cast<double>(tokens_since_log) / elapsed
                               : 0.0;
-            log_ << "step " << shown << "/" << config_.steps << " loss "
+            std::ostringstream line;
+            line << "step " << shown << "/" << config_.steps << " loss "
                  << std::fixed << std::setprecision(4) << loss << " lr "
                  << format_lr(lr) << " grad_norm " << std::setprecision(3)
                  << grad_norm << " tok/s " << std::setprecision(0) << tok_per_s
                  << "\n";
+            log_ << line.str() << std::flush;
             last_log = now;
             tokens_since_log = 0;
         }
         if (shown % config_.eval_interval == 0 || shown == config_.steps) {
             result.final_val_loss = evaluate();
-            log_ << "eval step " << shown << " val_loss " << std::fixed
+            std::ostringstream line;
+            line << "eval step " << shown << " val_loss " << std::fixed
                  << std::setprecision(4) << result.final_val_loss << "\n";
+            log_ << line.str() << std::flush;
         }
     }
     result.seconds =
