@@ -18,6 +18,8 @@ void add_rowwise_(Tensor& y, const Tensor& b);
 Tensor mul(const Tensor& a, const Tensor& b);
 // s * x.
 Tensor scale(const Tensor& x, float s);
+// x *= s, in place.
+void scale_(Tensor& x, float s);
 
 // SiLU: x * sigmoid(x). The backward returns dL/dx given x and dL/dy.
 Tensor silu(const Tensor& x);

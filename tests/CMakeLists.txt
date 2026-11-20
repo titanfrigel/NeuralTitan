@@ -31,10 +31,11 @@ target_sources(titan_tests PRIVATE
   nn/norm_module_test.cpp
   nn/mlp_test.cpp
   nn/embedding_module_test.cpp
+  optim/optim_test.cpp
 )
 # The CUDA tests call the runtime directly, so they link cudart themselves
 # instead of relying on titan_core, which keeps it private.
-target_link_libraries(titan_tests PRIVATE titan_test_harness titan_nn titan_ops titan_core CUDA::cudart)
+target_link_libraries(titan_tests PRIVATE titan_test_harness titan_optim titan_nn titan_ops titan_core CUDA::cudart)
 add_test(NAME unit COMMAND titan_tests)
 
 add_executable(harness_selftest_failing harness/main.cpp harness/selftest_failing.cpp)

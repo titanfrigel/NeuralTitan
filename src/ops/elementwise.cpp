@@ -36,6 +36,11 @@ Tensor scale(const Tensor& x, float s) {
     return cpu::scale(x, s);
 }
 
+void scale_(Tensor& x, float s) {
+    detail::require_cpu("scale_", {&x});
+    cpu::scale_(x, s);
+}
+
 Tensor silu(const Tensor& x) {
     detail::require_cpu("silu", {&x});
     return cpu::silu(x);

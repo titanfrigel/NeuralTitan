@@ -57,6 +57,11 @@ Tensor scale(const Tensor& x, float s) {
     return out;
 }
 
+void scale_(Tensor& x, float s) {
+    float* px = x.data();
+    for (std::int64_t i = 0; i < x.numel(); ++i) px[i] *= s;
+}
+
 // y = x * sigmoid(x)
 Tensor silu(const Tensor& x) {
     Tensor out = Tensor::empty(x.shape(), x.device());

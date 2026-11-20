@@ -29,3 +29,4 @@ Notes about infrastructure with no gradient, such as tensor memory, replace the 
 | [Cross-entropy](cross-entropy.md) | Fused softmax cross-entropy with log-sum-exp, and the gradient `(softmax − onehot)/N` derived from it. |
 | [Linear](linear.md) | The affine map `y = x Wᵀ + b` over the last dimension, flattened to rows, and its three gradients. |
 | [Feed-forward blocks](mlp.md) | SwiGLU and the GELU MLP, with the backward chain through the gate, the activation and both projections. |
+| [AdamW](adamw.md) | AdamW with bias-corrected moments and decoupled weight decay, no decay on rank-1 parameters, global-norm gradient clipping, and the warmup + cosine learning-rate schedule. |

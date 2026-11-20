@@ -9,7 +9,7 @@ Operations applied independently to each element: addition, multiplication, scal
 - `add`: `y = a + b`; `add_` computes `a ← a + b` in place.
 - `add_rowwise_`: `y[r][j] ← y[r][j] + b[j]` for every row `r`, in place; the broadcast add of a bias over the last dimension.
 - `mul`: `y = a ⊙ b`.
-- `scale`: `y = s·x`.
+- `scale`: `y = s·x`; `scale_` is the in-place form `x ← s·x`.
 - `silu`: `y = x·σ(x)`, where `σ(x) = 1 / (1 + e^(−x))`.
 - `gelu` (tanh approximation): `y = 0.5·x·(1 + tanh(u))`, where `u = k·(x + 0.044715·x³)` and `k = √(2/π)`.
 

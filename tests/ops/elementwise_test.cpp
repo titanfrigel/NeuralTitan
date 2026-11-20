@@ -36,6 +36,12 @@ TITAN_TEST(Elementwise, AddMulScale) {
     TITAN_EXPECT(ops::add(a, b).shape() == (titan::Shape{2, 3}));
 }
 
+TITAN_TEST(Elementwise, ScaleInPlace) {
+    Tensor a = make({1, 2, 3, 4}, {2, 2});
+    ops::scale_(a, -0.5f);
+    TITAN_EXPECT(a.to_vector() == (std::vector<float>{-0.5f, -1, -1.5f, -2}));
+}
+
 TITAN_TEST(Elementwise, AddInPlaceAccumulates) {
     Tensor a = make({1, 2, 3, 4, 5, 6}, {2, 3});
     const Tensor b = make({1, 1, 1, 1, 1, 1}, {2, 3});
