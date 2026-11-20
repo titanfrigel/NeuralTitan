@@ -3,7 +3,8 @@
 # section 10). Its .hpp files are plain C++, so the dispatch in titan_ops,
 # compiled by the host compiler, can include them.
 add_library(titan_ops_cuda STATIC
-  elementwise.cu)
+  elementwise.cu
+  reduce.cu)
 
 target_include_directories(titan_ops_cuda PUBLIC "${PROJECT_SOURCE_DIR}/src")
 target_link_libraries(titan_ops_cuda

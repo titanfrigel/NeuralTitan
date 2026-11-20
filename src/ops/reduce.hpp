@@ -4,8 +4,8 @@
 
 namespace titan::ops {
 
-// Reductions over CPU tensors. Sums accumulate in double.
-// A CUDA tensor throws "ops::<name>: CUDA implementation arrives in M2".
+// Reductions over CPU or CUDA tensors. Sums accumulate in double.
+// On CUDA, sum, sum_squares and all_finite wait for the GPU.
 
 // Sum of all elements.
 double sum(const Tensor& x);
