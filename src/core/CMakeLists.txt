@@ -11,7 +11,8 @@ add_library(titan_core STATIC
   rng.cpp
   device.cpp
   storage.cpp
-  tensor.cpp)
+  tensor.cpp
+  utf8.cpp)
 
 target_include_directories(titan_core
   PUBLIC

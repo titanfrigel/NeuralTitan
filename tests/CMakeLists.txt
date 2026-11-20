@@ -14,6 +14,7 @@ target_sources(titan_tests PRIVATE
   core/storage_test.cpp
   core/tensor_test.cpp
   core/rng_test.cpp
+  core/utf8_test.cpp
   core/parallel_test.cpp
   core/cuda_toolchain_test.cu
   support/gradcheck.cpp
