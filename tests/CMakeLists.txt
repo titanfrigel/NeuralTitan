@@ -24,6 +24,9 @@ target_sources(titan_tests PRIVATE
   ops/softmax_test.cpp
   ops/norm_test.cpp
   ops/rope_test.cpp
+  ops/embedding_test.cpp
+  ops/cross_entropy_test.cpp
+  ops/adamw_test.cpp
 )
 # The CUDA tests call the runtime directly, so they link cudart themselves
 # instead of relying on titan_core, which keeps it private.

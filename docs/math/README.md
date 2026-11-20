@@ -25,3 +25,5 @@ Notes about infrastructure with no gradient, such as tensor memory, replace the 
 | [Softmax](softmax.md) | Row softmax and causal softmax, why the mask comes before the maximum, and the backward formula from the softmax Jacobian. |
 | [Normalization](normalization.md) | RMSNorm and LayerNorm, with the backward formulas derived including the projection term. |
 | [RoPE](rope.md) | Rotary position embedding in the half-split layout, the relative-position property, and the backward pass as the inverse rotation. |
+| [Embedding](embedding.md) | Token-id lookup as a row gather, and its backward pass as a scatter-add that sums the gradients of repeated ids. |
+| [Cross-entropy](cross-entropy.md) | Fused softmax cross-entropy with log-sum-exp, and the gradient `(softmax − onehot)/N` derived from it. |
