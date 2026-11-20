@@ -7,6 +7,7 @@ Operations applied independently to each element: addition, multiplication, scal
 ## Forward
 
 - `add`: `y = a + b`; `add_` computes `a ← a + b` in place.
+- `add_rowwise_`: `y[r][j] ← y[r][j] + b[j]` for every row `r`, in place; the broadcast add of a bias over the last dimension.
 - `mul`: `y = a ⊙ b`.
 - `scale`: `y = s·x`.
 - `silu`: `y = x·σ(x)`, where `σ(x) = 1 / (1 + e^(−x))`.
@@ -26,7 +27,7 @@ Let `dy = ∂L/∂y`. For an elementwise `y = f(x)` the chain rule gives `dx = d
 
 ## Shapes
 
-Two-input ops take two tensors of identical shape and return that shape. `scale`, `silu` and `gelu` map a tensor to a tensor of the same shape. `silu_backward` and `gelu_backward` take `x` and `dy` of the same shape and return `dx` of that shape.
+`add_rowwise_` takes `y` of any shape with last dimension `D` and `b` of shape `(D)`. Other two-input ops take two tensors of identical shape and return that shape. `scale`, `silu` and `gelu` map a tensor to a tensor of the same shape. `silu_backward` and `gelu_backward` take `x` and `dy` of the same shape and return `dx` of that shape.
 
 ## Mapping to code
 

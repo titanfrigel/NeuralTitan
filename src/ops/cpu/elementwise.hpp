@@ -9,6 +9,7 @@ namespace titan::ops::cpu {
 
 Tensor add(const Tensor& a, const Tensor& b);
 void add_(Tensor& a, const Tensor& b);
+void add_rowwise_(Tensor& y, const Tensor& b);
 Tensor mul(const Tensor& a, const Tensor& b);
 Tensor scale(const Tensor& x, float s);
 Tensor silu(const Tensor& x);

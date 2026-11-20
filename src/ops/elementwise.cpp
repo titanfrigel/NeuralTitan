@@ -17,6 +17,14 @@ void add_(Tensor& a, const Tensor& b) {
     cpu::add_(a, b);
 }
 
+void add_rowwise_(Tensor& y, const Tensor& b) {
+    detail::require_cpu("add_rowwise_", {&y, &b});
+    TITAN_CHECK(b.rank() == 1 && b.dim(0) == y.dim(-1),
+                "ops::add_rowwise_: shape mismatch, y " + to_string(y.shape()) +
+                    " vs b " + to_string(b.shape()));
+    cpu::add_rowwise_(y, b);
+}
+
 Tensor mul(const Tensor& a, const Tensor& b) {
     detail::require_cpu("mul", {&a, &b});
     detail::require_same_shape("mul", a, b);

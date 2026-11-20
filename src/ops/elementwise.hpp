@@ -11,6 +11,9 @@ namespace titan::ops {
 Tensor add(const Tensor& a, const Tensor& b);
 // a += b, in place.
 void add_(Tensor& a, const Tensor& b);
+// y[r, :] += b for every row r of y, in place. y has last dimension D and b
+// is {D}; this is the broadcast add of a bias.
+void add_rowwise_(Tensor& y, const Tensor& b);
 // a * b, elementwise.
 Tensor mul(const Tensor& a, const Tensor& b);
 // s * x.

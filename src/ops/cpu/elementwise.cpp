@@ -30,6 +30,16 @@ void add_(Tensor& a, const Tensor& b) {
     for (std::int64_t i = 0; i < a.numel(); ++i) pa[i] += pb[i];
 }
 
+void add_rowwise_(Tensor& y, const Tensor& b) {
+    const std::int64_t cols = b.numel();
+    const std::int64_t rows = y.numel() / cols;
+    float* py = y.data();
+    const float* pb = b.data();
+    for (std::int64_t r = 0; r < rows; ++r) {
+        for (std::int64_t c = 0; c < cols; ++c) py[r * cols + c] += pb[c];
+    }
+}
+
 Tensor mul(const Tensor& a, const Tensor& b) {
     Tensor out = Tensor::empty(a.shape(), a.device());
     const float* pa = a.data();

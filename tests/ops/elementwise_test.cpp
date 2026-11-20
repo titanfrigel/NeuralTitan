@@ -105,3 +105,43 @@ TITAN_TEST(Elementwise, GeluGradCheck) {
         check_gradient([&] { return ops::gelu(x); }, x, grad, r);
     TITAN_EXPECT_GRAD_OK(result);
 }
+
+TITAN_TEST(Elementwise, AddRowwiseValues) {
+    Tensor y = make({1, 2, 3, 4, 5, 6}, {2, 3});
+    ops::add_rowwise_(y, make({10, 20, 30}, {3}));
+    TITAN_EXPECT(y.to_vector() == std::vector<float>({11, 22, 33, 14, 25, 36}));
+    Tensor y3 = make({1, 2, 3, 4}, {2, 1, 2});
+    ops::add_rowwise_(y3, make({1, -1}, {2}));
+    TITAN_EXPECT(y3.to_vector() == std::vector<float>({2, 1, 4, 3}));
+}
+
+TITAN_TEST(Elementwise, AddRowwiseShapeMismatchThrows) {
+    Tensor y = Tensor::zeros({2, 3}, Device::CPU);
+    const Tensor b = Tensor::zeros({2}, Device::CPU);
+    try {
+        ops::add_rowwise_(y, b);
+        TITAN_EXPECT(false);
+    } catch (const titan::Error& e) {
+        const std::string msg = e.what();
+        TITAN_EXPECT(msg.find("ops::add_rowwise_") != std::string::npos);
+        TITAN_EXPECT(msg.find("[2, 3]") != std::string::npos);
+        TITAN_EXPECT(msg.find("[2]") != std::string::npos);
+    }
+    const Tensor b2 = Tensor::zeros({1, 3}, Device::CPU);
+    TITAN_EXPECT_THROWS(ops::add_rowwise_(y, b2), titan::Error);
+}
+
+TITAN_TEST(Elementwise, AddRowwiseCudaThrowsM2Message) {
+    TITAN_SKIP_IF_NO_CUDA();
+    Tensor y = Tensor::zeros({2, 2}, Device::CUDA);
+    const Tensor b = Tensor::zeros({2}, Device::CUDA);
+    try {
+        ops::add_rowwise_(y, b);
+        TITAN_EXPECT(false);
+    } catch (const titan::Error& e) {
+        TITAN_EXPECT(
+            std::string(e.what()).find(
+                "ops::add_rowwise_: CUDA implementation arrives in M2") !=
+            std::string::npos);
+    }
+}
