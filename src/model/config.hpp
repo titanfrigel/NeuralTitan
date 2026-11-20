@@ -11,7 +11,7 @@ namespace titan::model {
 // One transformer block. mlp is "swiglu" or "gelu", norm is "rmsnorm" or
 // "layernorm", position is "rope" or "none".
 struct BlockConfig {
-    std::int64_t n_heads, n_kv_heads, mlp_hidden;
+    std::int64_t n_heads{}, n_kv_heads{}, mlp_hidden{};
     std::string mlp /*swiglu|gelu*/, norm /*rmsnorm|layernorm*/,
         position /*rope|none*/;
 };
@@ -19,7 +19,7 @@ struct BlockConfig {
 // The architecture of a decoder-only model. final_norm is "rmsnorm" or
 // "layernorm".
 struct ModelConfig {
-    std::int64_t vocab_size, dim, context_length;
+    std::int64_t vocab_size{}, dim{}, context_length{};
     float rope_theta = 10000.f, norm_eps = 1e-5f;
     bool tied_embeddings = true;
     std::string final_norm = "rmsnorm";
