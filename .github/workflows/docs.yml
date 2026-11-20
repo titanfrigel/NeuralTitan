@@ -1,0 +1,55 @@
+name: docs
+
+on:
+  pull_request:
+    branches: [main]
+  schedule:
+    # Weekly on Mondays, to catch links that broke without a change here.
+    - cron: '0 6 * * 1'
+
+permissions: {}
+
+jobs:
+  markdownlint:
+    name: markdownlint
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Node comes from the runner image; the config is .markdownlint-cli2.jsonc.
+      - name: Lint Markdown
+        run: npx --yes markdownlint-cli2@0.24.1
+
+  links:
+    name: links
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    env:
+      LYCHEE_TAG: lychee-v0.24.2
+      LYCHEE_TARGET: lychee-x86_64-unknown-linux-gnu
+      # From lychee-x86_64-unknown-linux-gnu.tar.gz.sha256 of the release.
+      LYCHEE_SHA256: 1f4e0ef7f6554a6ed33dd7ac144fb2e1bbed98598e7af973042fc5cd43951c9a
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Install lychee
+        working-directory: ${{ runner.temp }}
+        run: |
+          base="https://github.com/lycheeverse/lychee/releases/download/${LYCHEE_TAG}"
+          curl -fsSLO "${base}/${LYCHEE_TARGET}.tar.gz"
+          echo "${LYCHEE_SHA256}  ${LYCHEE_TARGET}.tar.gz" | sha256sum --check
+          tar -xzf "${LYCHEE_TARGET}.tar.gz"
+          echo "${RUNNER_TEMP}/${LYCHEE_TARGET}" >> "$GITHUB_PATH"
+
+      # The config is lychee.toml.
+      - name: Check links
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: lychee --config lychee.toml --no-progress './**/*.md'

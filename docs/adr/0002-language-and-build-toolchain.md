@@ -20,7 +20,7 @@ The library is written in C++ with CUDA kernels. It is built on Windows 11 for a
 ## Considered options
 
 | Option | Verdict |
-|---|---|
+| --- | --- |
 | C++20, CUDA 12.6, MSVC 14.38, CMake | Chosen: CUDA 12.6 officially supports MSVC 193x (VS 2022 17.x) with C++20; 14.38 is MSVC 1938. |
 | C++20 with MSVC 14.50 (VS 2026 default toolset) | Rejected: not in CUDA 12.6's supported compiler table. |
 | C++23 or C++26 | Rejected. `nvcc` 12.6 tops out at C++20 for device code, and MSVC 14.38 has little C++26 support. The features gained (reflection, `std::linalg`, `std::simd`) are either minor here or would replace code the project exists to write. |
@@ -29,6 +29,7 @@ The library is written in C++ with CUDA kernels. It is built on Windows 11 for a
 ## Decision outcome
 
 Chosen:
+
 - C++20 for host and device code.
 - CUDA Toolkit 12.6 (V12.6.85), targeting `sm_86`.
 - MSVC host toolset 14.38.

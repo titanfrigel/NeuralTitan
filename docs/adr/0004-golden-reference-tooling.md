@@ -20,7 +20,7 @@ Milestones M4 and M5 require proof that our BPE tokenizer and Llama implementati
 ## Considered options
 
 | Criterion | A. Python + PyTorch + transformers | B. llama.cpp | C. Own NumPy reimplementation |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | Fit | The reference implementation SmolLM2 is defined against; runs in FP32 | Conversion needs Python packages anyway; numerics may differ | Shares our own understanding, so cannot catch our mistakes |
 | Packages | `torch` 2.15.0, `transformers` 5.23.0, `safetensors` 0.8.0 | C++ build plus Python conversion | `numpy`, `safetensors` |
 | Health | `transformers` ~28M downloads/week; latest releases 2026-10-28 (torch) and 2026-11-13 (transformers); no OSV advisories at these versions | Active (unverified) | Mature (unverified) |

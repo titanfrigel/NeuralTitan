@@ -14,6 +14,7 @@ Readability and understanding beat performance everywhere they conflict.
 ## 2. Goals, non-goals, anti-goals
 
 ### Goals
+
 - Implement a modern decoder-only transformer in the style of today's open models (Llama 3, Qwen, Mistral, SmolLM): RMSNorm (pre-norm), RoPE, SwiGLU MLP, grouped-query attention (GQA), tied or untied embeddings, KV cache for generation.
 - Every model is described by a config; each transformer block is instantiated with its own attention and MLP settings (heterogeneous blocks are allowed).
 - Every operation exists twice: a plain, readable **CPU reference** and a **CUDA** implementation, verified against each other.
@@ -24,6 +25,7 @@ Readability and understanding beat performance everywhere they conflict.
 - Each module's math (forward and backward derivation) is documented alongside the code — the documentation is part of the learning output.
 
 ### Non-goals (v1)
+
 - Mixed precision (FP16/BF16 compute), quantization.
 - Multi-GPU, distributed training.
 - Mixture-of-experts, encoder or encoder-decoder models.
@@ -32,6 +34,7 @@ Readability and understanding beat performance everywhere they conflict.
 - Competitive performance with PyTorch/cuBLAS.
 
 ### Anti-goals (a failure even if it works)
+
 - Any third-party library in the build (no cuDNN, CUTLASS, Eigen, JSON libraries, test frameworks). The only allowed dependencies are the C++ standard library and the CUDA runtime. The one exception is cuBLAS, the default GEMM (ADR 0007). The project's own naive and tiled GEMM kernels are kept for learning.
 - "Magic" that hides the math: a generic autograd engine in v1, or code transcribed from llm.c / PyTorch without the author being able to explain it.
 - CUDA kernels that are not checked against the CPU reference.
@@ -47,7 +50,7 @@ Readability and understanding beat performance everywhere they conflict.
 ## 4. Approaches considered
 
 | Approach | Summary | Trade-off | Decision |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | **A. Module objects, hand-written backward** | `Tensor` + `Module { forward, backward, parameters }`; composite modules call children's backward in reverse order; model assembled from config. | All gradient math visible; new architectures need some glue code in composite modules. | **Chosen.** |
 | B. Compute graph / autograd | Config builds a graph of primitive ops; engine derives backward order and plans memory. | New architectures nearly free, but ~2× infrastructure before the first token, and the math hides behind the engine. | Rejected for v1; a possible later learning stage built on top of A. |
 | C. Monolithic llm.c-style struct | One struct of all weights/activations, one function per layer. | Fastest to a working model, but not a library and cannot express different model forms. | Rejected. |
@@ -56,7 +59,7 @@ Readability and understanding beat performance everywhere they conflict.
 
 Layers, from bottom to top. Each layer depends only on the ones below it.
 
-```
+```text
 titan (CLI: train / generate / tokenizer)
   └─ runtime: Trainer, Generator, Sampler, DataLoader, Checkpoint
       └─ model: Model, ModelConfig, presets (llama-style, gpt2-style), weight loaders
@@ -73,6 +76,7 @@ io: JSON parser, safetensors reader, binary checkpoint format
 ```
 
 ### 5.1 core
+
 - `Device { CPU, CUDA }`.
 - `Tensor`: FP32, row-major contiguous, up to 4 dimensions, owns (or shares) a `Storage` on one device. Explicit `to(Device)` copies; no implicit transfers. Views over contiguous sub-ranges (e.g. a row slice) share storage.
 - A simple caching allocator for CUDA memory so training steps do not call `cudaMalloc` repeatedly.
@@ -80,7 +84,9 @@ io: JSON parser, safetensors reader, binary checkpoint format
 - Error handling: a `TITAN_CHECK` macro and CUDA error checking that throws with file/line.
 
 ### 5.2 ops
+
 Each op has one signature in `ops/` that dispatches on the tensors' device to `cpu::` or `cuda::`. Initial set:
+
 - matmul (with transposes), batched matmul
 - elementwise: add, mul, scale, SiLU, GELU, residual add
 - reductions: sum, row max
@@ -95,6 +101,7 @@ Each op has one signature in `ops/` that dispatches on the tensors' device to `c
 The production GEMM is cuBLAS (ADR 0007). The project also writes a naive and a shared-memory tiled CUDA GEMM. Both are kept, tested, selectable at runtime and benchmarked against cuBLAS, with a roofline analysis in the matmul math note. Attention in v1 materializes the score matrix (no flash attention).
 
 ### 5.3 nn
+
 ```cpp
 struct Parameter { std::string name; Tensor value; Tensor grad; };
 
@@ -106,22 +113,26 @@ public:
   virtual ~Module() = default;
 };
 ```
+
 - In **training mode** `forward` caches what its `backward` needs; in **inference mode** it caches nothing and attention uses the KV cache carried in `ForwardContext` (positions, cache slots).
 - `TransformerBlock` = `x + Attn(Norm(x))`, then `x + MLP(Norm(x))`; its MLP and attention are chosen from its own block config.
 - Gradients accumulate (`+=`) so gradient accumulation across micro-batches works; `zero_grad` clears them.
 - Initialization schemes are per-module and documented.
 
 ### 5.4 model
+
 - `ModelConfig`: vocab size, model dim, context length, RoPE theta, norm epsilon, tied embeddings flag, and a list of block configs (`n_heads`, `n_kv_heads`, MLP type and hidden size, norm type, position encoding type).
 - Config file format: JSON, parsed by our own parser. Presets: `llama-style` (default) and `gpt2-style` (LayerNorm, learned positional embedding, GELU MLP) — the latter optional after v1's core milestones.
 - Weight loaders: our own checkpoint format (save/load including optimizer state for resume), and a **safetensors** reader that maps Hugging Face Llama tensor names onto our parameters, converting BF16/FP16 to FP32 on load.
 
 ### 5.5 tokenizer
+
 - `CharTokenizer`: vocabulary built from the corpus.
 - `BpeTokenizer`: byte-level BPE. Train merges on a corpus; encode/decode; load Hugging Face `tokenizer.json` (vocab + merges + the pre-tokenization regex behaviour needed for SmolLM2, hand-implemented since no regex library is used beyond what is strictly necessary).
 - Special tokens (BOS/EOS) supported.
 
 ### 5.6 runtime
+
 - `DataLoader`: corpus tokenized once to a binary file of token ids; yields random (or sequential) `B × T` windows with next-token targets.
 - `Trainer`: loop of forward → loss → backward → clip → AdamW step → schedule; gradient accumulation; periodic validation loss; periodic checkpoint; logs loss, tokens/s, LR.
 - LR schedule: linear warmup + cosine decay.
@@ -129,12 +140,14 @@ public:
 - `Sampler`: greedy, temperature, top-k, top-p; seeded.
 
 ### 5.7 CLI (`titan`)
-```
+
+```text
 titan tokenizer train --corpus data/shakespeare.txt --vocab 4096 --out tok.json
 titan train    --config configs/tiny-llama.json --data data/tinystories --out runs/tiny
 titan generate --checkpoint runs/tiny/latest.ckpt --prompt "Once upon a time" --temp 0.8 --top-p 0.9
 titan generate --hf-model models/SmolLM2-135M --prompt "..."
 ```
+
 `--device cpu|cuda` on all commands; CUDA is the default when available.
 
 ## 6. Verification strategy
@@ -150,7 +163,7 @@ titan generate --hf-model models/SmolLM2-135M --prompt "..."
 Each milestone ends with something runnable and tested.
 
 | # | Milestone | Done when |
-|---|---|---|
+| --- | --- | --- |
 | M0 | Skeleton | CMake builds a library, the `titan` CLI and the test runner with MSVC 14.38 + CUDA 12.6 for `sm_86`; `Tensor` on CPU and CUDA with copies; test harness runs. |
 | M1 | CPU model + training | All CPU ops, all modules with gradient checks, AdamW, char tokenizer; a tiny Llama-style model trains on TinyShakespeare on CPU and its loss falls; text samples look Shakespeare-ish. |
 | M2 | CUDA backend | Every op has a CUDA kernel passing parity tests; the M1 run trains on the GPU, much faster; staged matmul kernels benchmarked. |
@@ -160,9 +173,11 @@ Each milestone ends with something runnable and tested.
 | M6 | Train a real small model | A ~10–30M parameter Llama-style model trained from scratch on TinyStories with our BPE produces coherent short stories. |
 
 ### Later stages (out of v1, listed so v1 does not block them)
+
 GPT-2 preset and GPT-2 124M loading; kernel optimization and flash attention; mixed precision; a compute-graph autograd built on top of the modules (approach B); mixture-of-experts.
 
 ## 8. Decided by the author
+
 - Dependencies: C++ standard library and CUDA runtime only, plus cuBLAS as the default GEMM (ADRs 0006 and 0007, decided after the spec's first approval).
 - Gradients: hand-written backward per module, verified by gradient checks.
 - CPU reference first, CUDA verified against it.
@@ -185,6 +200,7 @@ GPT-2 preset and GPT-2 124M loading; kernel optimization and flash attention; mi
   - With cuBLAS as the default GEMM (ADR 0007), the budget mainly constrains the model size and token count chosen for M6.
 
 ## 9. Proposed by the designer (correctable)
+
 - SmolLM2-135M as the pretrained target, because it is a true Llama-architecture model that fits the 8 GB GPU in FP32 and uses byte-level BPE.
 - Tokenizer path: character-level, then byte-level BPE (author had no preference).
 - FP32 only in v1 (author had no preference); mixed precision deferred because it adds numerical-stability issues unrelated to learning the fundamentals.
@@ -202,6 +218,7 @@ GPT-2 preset and GPT-2 124M loading; kernel optimization and flash attention; mi
   Bit-exact determinism across CPU and CUDA is not required.
 
 ## 10. Left to the builder
+
 - Exact file layout inside each layer, naming, class boundaries beyond the ones above.
 - Allocator design, kernel launch configurations, tile sizes.
 - Test tolerances, gradient-check precision strategy.

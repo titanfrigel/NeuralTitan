@@ -19,7 +19,7 @@ The project exists so the author can understand every part of an LLM by reviewin
 ## Considered options
 
 | Option | Verdict |
-|---|---|
+| --- | --- |
 | C++ standard library and CUDA runtime only | Chosen: everything else is written in the project. |
 | Allow cuBLAS as an optional benchmark backend | Deferred: may be added later through a new ADR as a speed reference, never as a required path. |
 | Use a test framework (e.g. GoogleTest) and a JSON library | Rejected: both are small enough to write ourselves, and depending on them would break the rule for little gain. |
@@ -27,6 +27,7 @@ The project exists so the author can understand every part of an LLM by reviewin
 ## Decision outcome
 
 Chosen: the build links only the C++ standard library and the CUDA runtime. The project writes its own:
+
 - test harness;
 - JSON parser;
 - safetensors reader;

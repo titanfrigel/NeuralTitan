@@ -1,0 +1,25 @@
+{
+  // Markdown lint for every document in the repository, run in CI with
+  // npx --yes markdownlint-cli2@0.24.1 (ADR 0008).
+  "config": {
+    "default": true,
+    // Prose is written one paragraph or list item per line, and tables and
+    // links do not wrap; hard-wrapping them at 80 columns would hurt
+    // readability and make diffs noisier.
+    "MD013": false
+  },
+  "globs": ["**/*.md"],
+  "ignores": [
+    "build/**",
+    "tools/.venv/**",
+    ".superpowers/**",
+    // Generated files: overwritten by their tools, never edited by hand.
+    ".github/scripts/senior-standards/**",
+    "docs/adr/README.md",
+    // A one-line import of AGENTS.md for Claude Code, not a document.
+    "CLAUDE.md",
+    // Copied verbatim from senior-standards; a pull request body starts at
+    // level-2 headings under the title, so it has no top-level heading.
+    ".github/pull_request_template.md"
+  ]
+}

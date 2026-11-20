@@ -11,3 +11,4 @@
 | 0005 | [Architecture style](0005-layered-architecture.md) | accepted | 2026-11-19 |
 | 0006 | [Third-party libraries in the build, with optional cuBLAS](0006-third-party-libraries-with-optional-cublas.md) | superseded | 2026-11-19 |
 | 0007 | [Third-party libraries in the build, with cuBLAS as the default GEMM](0007-cublas-default-gemm.md) | accepted | 2026-11-19 |
+| 0008 | [Repository tooling baseline: format, lint, secrets, docs checks and CI](0008-repository-tooling-baseline.md) | accepted | 2026-11-19 |

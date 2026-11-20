@@ -1,0 +1,69 @@
+name: ci
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions: {}
+
+jobs:
+  check:
+    name: check
+    runs-on: windows-2025
+    permissions:
+      contents: read
+    env:
+      CUDA_INSTALL_DIR: C:\Program Files\NVIDIA GPU Computing Toolkit\CUDA\v12.6
+      # SHA-256 of cuda_12.6.3_windows_network.exe, computed from NVIDIA's download.
+      CUDA_INSTALLER_SHA256: 05CD1A726216D83D124B2139464E998520384585D4E9F45BD7FFD902635AAB07
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      # Only the CUDA subpackages the build needs (ADR 0008); the runner has
+      # no GPU, so the CUDA tests skip themselves.
+      - name: Restore CUDA 12.6.3
+        id: cuda-cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ${{ env.CUDA_INSTALL_DIR }}
+          key: cuda-12.6.3-nvcc_12.6-cudart_12.6-cublas_12.6-cublas_dev_12.6
+
+      - name: Install CUDA 12.6.3
+        if: steps.cuda-cache.outputs.cache-hit != 'true'
+        shell: pwsh
+        run: |
+          $installer = Join-Path $env:RUNNER_TEMP 'cuda_12.6.3_windows_network.exe'
+          Invoke-WebRequest -Uri 'https://developer.download.nvidia.com/compute/cuda/12.6.3/network_installers/cuda_12.6.3_windows_network.exe' -OutFile $installer
+          $hash = (Get-FileHash $installer -Algorithm SHA256).Hash
+          if ($hash -ne $env:CUDA_INSTALLER_SHA256) { throw "CUDA installer SHA-256 $hash does not match the pinned $env:CUDA_INSTALLER_SHA256" }
+          $signature = Get-AuthenticodeSignature $installer
+          if ($signature.Status -ne 'Valid' -or $signature.SignerCertificate.Subject -notmatch 'NVIDIA') {
+            throw "CUDA installer signature is $($signature.Status), signer '$($signature.SignerCertificate.Subject)'"
+          }
+          # -s: silent install of the listed subpackages; -n: never reboot.
+          $process = Start-Process -FilePath $installer -ArgumentList '-s', 'nvcc_12.6', 'cudart_12.6', 'cublas_12.6', 'cublas_dev_12.6', '-n' -Wait -PassThru
+          Remove-Item $installer
+          if ($process.ExitCode -ne 0) { throw "CUDA installer exited with $($process.ExitCode)" }
+          if (-not (Test-Path (Join-Path $env:CUDA_INSTALL_DIR 'bin\nvcc.exe'))) { throw "nvcc.exe not found under $env:CUDA_INSTALL_DIR" }
+
+      - name: Put CUDA on PATH
+        shell: pwsh
+        run: |
+          "CUDA_PATH=$env:CUDA_INSTALL_DIR" >> $env:GITHUB_ENV
+          (Join-Path $env:CUDA_INSTALL_DIR 'bin') >> $env:GITHUB_PATH
+
+      - name: Install the pinned formatter
+        shell: pwsh
+        run: |
+          python -m venv tools/.venv
+          tools/.venv/Scripts/python -m pip install -r tools/requirements-dev.txt
+
+      - name: Check
+        shell: pwsh
+        env:
+          TITAN_MSVC_TOOLSET: '14.44'
+        run: pwsh -NoProfile -File scripts/check.ps1

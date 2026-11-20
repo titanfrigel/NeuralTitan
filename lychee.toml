@@ -1,0 +1,29 @@
+# Link check for the Markdown docs, run in CI by .github/workflows/docs.yml
+# with the lychee release pinned there (ADR 0008).
+
+# Anchors are not checked (include_fragments stays unset): GitHub generates
+# heading anchors at render time, so they cannot be resolved from the Markdown
+# files alone.
+
+max_retries = 3
+timeout = 30
+accept = ["200..=299", "429"]
+
+exclude = [
+    # Local development servers are not reachable from CI.
+    '^https?://localhost',
+    '^https?://127\.0\.0\.1',
+    # Needs a signed-in GitHub session; anonymous requests get a 404.
+    '^https://github\.com/[^/]+/[^/]+/security/advisories/new$',
+]
+
+exclude_path = [
+    '(^|/)build/',
+    '(^|/)tools/\.venv/',
+    '(^|/)\.superpowers/',
+    # Generated files.
+    '(^|/)\.github/scripts/senior-standards/',
+    '(^|/)docs/adr/README\.md$',
+]
+
+exclude_loopback = true

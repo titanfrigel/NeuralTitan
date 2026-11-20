@@ -63,7 +63,7 @@ C4Container
 Library layers, bottom to top:
 
 | Layer | Responsibility | Technology | ADR |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `core` | `Tensor`, `Storage`, `Device`, CUDA caching allocator, seeded RNG, error checking | C++20, CUDA runtime | 0002, 0007 |
 | `io` | JSON parser, safetensors reader, checkpoint binary format, bounds-checked binary reading | C++20 | 0007 |
 | `tokenizer` | Character tokenizer, byte-level BPE (train, encode, decode, load `tokenizer.json`), Unicode category tables | C++20 | 0007 |
@@ -187,7 +187,7 @@ Decisions are recorded as ADRs; see the [decision index](../adr/README.md).
 ## 8. Quality goals
 
 | Priority | Quality goal | Scenario and target |
-|---|---|---|
+| --- | --- | --- |
 | 1 | Correctness | Every CUDA op agrees with its CPU reference and every module passes a gradient check (100%). SmolLM2-135M logits are within 1e-3 of the reference; the first 32 greedy tokens match. |
 | 2 | Understandability | A reader follows any forward or backward pass from `Model` down to a kernel through direct calls, with a math note for every module and op family (100% coverage). |
 | 3 | Performance within budget | TinyShakespeare on CPU in under 30 min; TinyStories on GPU in about 8 h or less, reaching validation loss ≈ 1.5. |
@@ -212,7 +212,7 @@ Decisions are recorded as ADRs; see the [decision index](../adr/README.md).
 ### Top threats
 
 | Threat | Asset or boundary | Likelihood and impact |
-|---|---|---|
+| --- | --- | --- |
 | T1. A crafted or corrupt safetensors/JSON file triggers out-of-bounds reads or huge allocations (tampering, DoS) | Downloaded files → parsers | Medium likelihood for corrupt files, low for crafted ones; impact high (memory corruption) |
 | T2. A truncated checkpoint is silently loaded, corrupting a resumed run | Checkpoint files → loader | Medium likelihood; medium impact (wasted GPU hours) |
 | T3. A compromised or typo-squatted PyPI package in `tools/` | PyPI → dev venv | Low likelihood; high impact on the author's machine |
@@ -229,10 +229,10 @@ Decisions are recorded as ADRs; see the [decision index](../adr/README.md).
 
 ## 10. Layer rules
 
-`→` means "may include headers from and link to". Every layer may use the C++ standard library. Only `core` and `ops/cuda` include CUDA runtime headers, and only `ops/cuda` may include and link cuBLAS; other layers reach the GPU only through `core` and `ops`.
+`→` means "may include headers from and link to". Every layer may use the C++ standard library. Only `core` and `ops/cuda` include CUDA runtime headers, and only `ops/cuda` may include and link cuBLAS; other layers reach the GPU only through `core` and `ops`. The public `core` headers (`tensor.hpp`, `storage.hpp`, `device.hpp`, `error.hpp`) include no CUDA header. The one `core` header that does, `core/cuda_check.hpp` with `TITAN_CUDA_CHECK`, counts as a CUDA runtime header and is likewise limited to `core` and `ops/cuda`. `titan_core` links `CUDA::cudart` privately.
 
 | Layer or module | May depend on | Must not depend on |
-|---|---|---|
+| --- | --- | --- |
 | `core` | — | everything else |
 | `io` | `core` | `tokenizer`, `ops`, `nn`, `optim`, `model`, `runtime`, `cli` |
 | `tokenizer` | `io`, `core` | `ops`, `nn`, `optim`, `model`, `runtime`, `cli` |
@@ -250,14 +250,15 @@ Decisions are recorded as ADRs; see the [decision index](../adr/README.md).
 Checkpoint save and load for optimizer state lives in `runtime`, which may see both `model` and `optim`. `model` only saves and loads parameters.
 
 Enforcement:
+
 - Each layer is its own CMake static library whose `target_link_libraries` lists only its allowed layers, so a forbidden call fails to link.
-- A project script (`scripts/check_layers`, written with the repository tooling) scans every `#include "..."` under `src/` and fails on any include that points to a forbidden layer.
+- `scripts/check_layers.cmake`, run by the CTest entry `layers_repo`, scans every project `#include "..."` under `src/` and fails on any include that points to a forbidden layer. It also applies the system-header rule: `cuda_runtime.h`, `cuda.h`, `cuda_runtime_api.h` and `core/cuda_check.hpp` only in `core` and `ops/cuda`, and `cublas_v2.h` only in `ops/cuda`.
 - Both run in the single `check` step, locally and in CI.
 
 ## 11. Risks and technical debt
 
 | Item | Kind (risk or debt) | Mitigation or plan |
-|---|---|---|
+| --- | --- | --- |
 | M6 ~8 h budget missed | Risk | GEMM uses cuBLAS by default (ADR 0007), so the remaining cost is in own non-GEMM kernels and materialized attention. Profile at M2; if over budget, shrink the M6 model or token count. Revisit at M2. |
 | Materialized attention scores limit context length in 8 GB | Risk | Keep context ≤ 1024 in v1 training configs. Flash-style attention is listed as a later stage. Revisit if M6 needs longer context. |
 | Logits drift from the reference beyond 1e-3 (summation order) | Risk | FP32 reference, per-layer intermediate dumps from `tools/` to localize divergence, accumulation order documented. Revisit at M5. |

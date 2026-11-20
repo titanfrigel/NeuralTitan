@@ -19,7 +19,7 @@ NeuralTitan is a learning project whose value lies in understanding why it is bu
 ## Considered options
 
 | Option | Verdict |
-|---|---|
+| --- | --- |
 | Markdown ADRs in `docs/adr/` with `status`/`date`/`packages` frontmatter | Chosen: versioned with the code, reviewable in PRs, machine-readable package approvals. |
 | Decisions in the design spec only | Rejected: specs are rewritten; history and per-decision status get lost. |
 | No formal records | Rejected: no audit trail for dependency approvals. |
