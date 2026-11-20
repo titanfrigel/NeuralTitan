@@ -34,6 +34,7 @@ target_sources(titan_tests PRIVATE
   nn/mlp_test.cpp
   nn/embedding_module_test.cpp
   nn/attention_test.cpp
+  nn/block_test.cpp
   optim/optim_test.cpp
   io/json_test.cpp
   io/token_file_test.cpp

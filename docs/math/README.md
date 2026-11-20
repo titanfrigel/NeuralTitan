@@ -30,4 +30,5 @@ Notes about infrastructure with no gradient, such as tensor memory, replace the 
 | [Linear](linear.md) | The affine map `y = x Wᵀ + b` over the last dimension, flattened to rows, and its three gradients. |
 | [Feed-forward blocks](mlp.md) | SwiGLU and the GELU MLP, with the backward chain through the gate, the activation and both projections. |
 | [Attention](attention.md) | Causal grouped-query attention with RoPE: the scaled dot-product, the causal mask, the head layout ops and the group-sum gradient of the shared KV heads, every shape through the layer. |
+| [Transformer block](transformer-block.md) | The pre-norm residual block `h = x + attn(norm1(x))`, `y = h + mlp(norm2(h))`, and how the residual gradient splits into both paths. |
 | [AdamW](adamw.md) | AdamW with bias-corrected moments and decoupled weight decay, no decay on rank-1 parameters, global-norm gradient clipping, and the warmup + cosine learning-rate schedule. |

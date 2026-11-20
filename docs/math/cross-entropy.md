@@ -42,4 +42,5 @@ This is the whole backward pass: no separate softmax Jacobian is needed, because
 
 - Public interface and precondition checks: `src/ops/cross_entropy.hpp`, `src/ops/cross_entropy.cpp`. A CUDA tensor fails with `ops::cross_entropy: CUDA implementation arrives in M2`.
 - Reference implementation: `src/ops/cpu/cross_entropy.cpp`; one pass per row computes `m`, `lse` and the loss term, then the gradient row.
+- `src/nn/loss.hpp`, `src/nn/loss.cpp`: `nn::CrossEntropyLoss` flattens logits `(B, T, V)` to `(B·T, V)`, calls `ops::cross_entropy` with a gradient output, and returns that gradient from `backward()` reshaped to `(B, T, V)`. Its tests are in `tests/nn/block_test.cpp`.
 - Tests: `tests/ops/cross_entropy_test.cpp` covers the uniform loss `log 65`, large logits, gradient rows summing to 0, a finite-difference gradient check with the loss itself as the scalar, and error cases.

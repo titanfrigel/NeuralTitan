@@ -4,6 +4,8 @@
 
 A learned affine map applied to the last dimension: every row of the input is multiplied by a weight matrix and, optionally, shifted by a bias. Projections in attention and in the feed-forward blocks, and the output head, are all linear layers.
 
+The output head `nn::LMHead` is a linear layer without bias from `dim` to the vocabulary size `V`: `logits = x Eᵀ` with `E` of shape `(V, dim)`. With tied embeddings `E` is the token-embedding table itself rather than a separate weight.
+
 ## Forward
 
 For a row `x` of length `in`, a weight `W` of shape `(out, in)` and a bias `b` of length `out`:
@@ -26,14 +28,19 @@ With `L` the loss and `dY = ∂L/∂Y` of shape `(N, out)`:
 
 The parameter gradients are added (`+=`) to `Parameter::grad`, so calling `backward` twice without `zero_grad` gives twice the gradient; this is what gradient accumulation across micro-batches relies on. `dX` is reshaped to the input's shape.
 
+For the tied head the same formulas hold with `W = E`: `dE += dYᵀ X` is added to the embedding table's gradient, which the embedding's own backward also adds its scatter to, so the shared table receives the sum of both uses.
+
 ## Shapes
 
 - Input `x`: `(..., in)`, rank 1 to 4. Output: the same with `out` as last dimension.
 - `<name>.weight`: `(out, in)`. `<name>.bias`: `(out)`, present only with bias.
 - `dy` has the output's shape; `dx` has the input's.
+- `nn::LMHead`: input `(..., dim)`, logits `(..., V)`; untied it owns `<name>.weight` `(V, dim)`, tied it owns nothing and uses the embedding's `(V, dim)` table.
 
 ## Mapping to code
 
 - `src/nn/linear.hpp`, `src/nn/linear.cpp`: `Linear::forward` calls `ops::matmul(X, W, false, true)` and adds the bias row by row; `Linear::backward` calls `ops::matmul_acc(dW, dY, X, true, false)`, `ops::sum_leading` and `ops::matmul(dY, W)`.
 - The input is cached by a training-mode forward. Calling `backward` after an inference-mode forward throws `backward called without a training-mode forward`.
+- `src/nn/lm_head.hpp`, `src/nn/lm_head.cpp`: `LMHead` holds a pointer to the weight it uses, either its own `Parameter` (untied) or the embedding's (tied), and runs the same two matmuls without a bias. In tied mode `parameters()` lists nothing, so the shared table is listed once, by the embedding.
+- Tests: `tests/nn/block_test.cpp` gradient-checks the untied head and checks that the tied head adds its gradient on top of what the shared `Parameter::grad` already holds.
 - Tests: `tests/nn/linear_test.cpp` covers known values, gradient checks (no bias, bias with a rank-3 input) and accumulation.
