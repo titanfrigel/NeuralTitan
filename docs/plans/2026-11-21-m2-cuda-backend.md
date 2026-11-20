@@ -258,7 +258,12 @@
 - [ ] **Step 2:** Run them. Expected: FAIL.
 - [ ] **Step 3:** Implement the ops:
   - The ids are validated on the host by the dispatch, which already does this for the CPU, then copied to a device buffer from the caching allocator.
-  - `embedding_backward` is deterministic: one thread per (vocab row, column) pair, scanning the ids in order and accumulating in double. Its cost is O(V·N·D / threads), which is fine for V ≤ 50k at M2 sizes. The math note states the trade-off against atomics.
+  - `embedding_backward` is deterministic and uses no atomics:
+    - The host groups token positions by id with a counting sort, which gives a CSR layout. The ids that occur are listed, each with its positions in ascending order.
+    - The host uploads that layout.
+    - One thread per (occurring id, column) sums its positions in order, in double, and adds the sum to the accumulator.
+
+    The total work is O(N·D). The math note states the trade-off against atomics.
   - Cross-entropy puts one block per row and returns the mean loss through a fixed-order reduction.
 - [ ] **Step 4:** Run `scripts/check.ps1`. Expected: `check: OK`.
 - [ ] **Step 5:** Write the CUDA sections, then make two commits: `feat(ops): add cuda embedding kernels` and `feat(ops): add cuda cross-entropy kernel`.
