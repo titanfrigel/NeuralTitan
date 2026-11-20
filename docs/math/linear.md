@@ -42,5 +42,4 @@ For the tied head the same formulas hold with `W = E`: `dE += dYᵀ X` is added 
 - `src/nn/linear.hpp`, `src/nn/linear.cpp`: `Linear::forward` calls `ops::matmul(X, W, false, true)` and adds the bias row by row; `Linear::backward` calls `ops::matmul_acc(dW, dY, X, true, false)`, `ops::sum_leading` and `ops::matmul(dY, W)`.
 - The input is cached by a training-mode forward. Calling `backward` after an inference-mode forward throws `backward called without a training-mode forward`.
 - `src/nn/lm_head.hpp`, `src/nn/lm_head.cpp`: `LMHead` holds a pointer to the weight it uses, either its own `Parameter` (untied) or the embedding's (tied), and runs the same two matmuls without a bias. In tied mode `parameters()` lists nothing, so the shared table is listed once, by the embedding.
-- Tests: `tests/nn/block_test.cpp` gradient-checks the untied head and checks that the tied head adds its gradient on top of what the shared `Parameter::grad` already holds.
-- Tests: `tests/nn/linear_test.cpp` covers known values, gradient checks (no bias, bias with a rank-3 input) and accumulation.
+- Tests: `tests/nn/linear_test.cpp` covers known values, gradient checks (no bias, bias with a rank-3 input) and accumulation. `tests/nn/block_test.cpp` gradient-checks the untied head and checks that the tied head adds its gradient on top of what the shared `Parameter::grad` already holds.
