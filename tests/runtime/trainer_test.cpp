@@ -1,3 +1,4 @@
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <sstream>
@@ -156,17 +157,39 @@ TITAN_TEST(Trainer, RejectsSeqLongerThanContext) {
     TITAN_EXPECT(contains(message, "context_length 4"));
 }
 
+TITAN_TEST(Trainer, RejectsZeroSizes) {
+    Model m(llama_style(5, 16, 1, 2, 1, 8));
+    std::ostringstream log;
+    for (int which = 0; which < 4; ++which) {
+        TrainConfig c = small_config();
+        (which == 0   ? c.grad_accum
+         : which == 1 ? c.log_interval
+         : which == 2 ? c.eval_interval
+                      : c.eval_batches) = 0;
+        TITAN_EXPECT_THROWS(
+            Trainer(m, c, repeating_tokens(400), repeating_tokens(100), log),
+            titan::Error);
+    }
+}
+
 TITAN_TEST(Trainer, GradAccumEquivalence) {
-    // Two steps with (B=4, accum=1) and with (B=2, accum=2) see the same four
-    // windows per step (sequential loaders), so the averaged gradient and
-    // therefore the updated parameters agree.
-    const auto run_one_step = [](std::int64_t batch, std::int64_t accum) {
+    // (B=4, accum=1) and (B=2, accum=2) see the same four windows per step
+    // (sequential loaders). Their gradients must match: the accumulated
+    // micro-batch gradients carry the 1/grad_accum scale. Adam is
+    // scale-invariant and clipping normalises, so with a huge grad_clip the
+    // gradients left in the parameters by the last step are the only direct
+    // witness of that scale; the updated parameters are compared as well.
+    struct Outcome {
+        std::vector<float> values, grads;
+    };
+    const auto run_two_steps = [](std::int64_t batch, std::int64_t accum) {
         Model m(llama_style(5, 16, 1, 2, 1, 8));
         Rng init(21);
         m.init(init);
         TrainConfig c = small_config();
         c.batch = batch;
         c.grad_accum = accum;
+        c.grad_clip = 1e30f;
         c.steps = 2;
         c.warmup = 1;
         c.eval_interval = 100;
@@ -176,17 +199,25 @@ TITAN_TEST(Trainer, GradAccumEquivalence) {
                         log);
         trainer.train_loader().set_sequential(true);
         trainer.run();
-        std::vector<float> flat;
+        Outcome out;
         for (const titan::nn::Parameter* p : m.parameters()) {
             const std::vector<float> v = p->value.to_vector();
-            flat.insert(flat.end(), v.begin(), v.end());
+            const std::vector<float> g = p->grad.to_vector();
+            out.values.insert(out.values.end(), v.begin(), v.end());
+            out.grads.insert(out.grads.end(), g.begin(), g.end());
         }
-        return flat;
+        return out;
     };
-    const std::vector<float> a = run_one_step(4, 1);
-    const std::vector<float> b = run_one_step(2, 2);
-    TITAN_EXPECT_EQ(a.size(), b.size());
-    for (std::size_t i = 0; i < a.size(); ++i) {
-        TITAN_EXPECT_NEAR(a[i], b[i], 1e-5);
+    const Outcome a = run_two_steps(4, 1);
+    const Outcome b = run_two_steps(2, 2);
+    TITAN_EXPECT_EQ(a.values.size(), b.values.size());
+    double max_grad = 0.0;
+    for (std::size_t i = 0; i < a.values.size(); ++i) {
+        TITAN_EXPECT_NEAR(a.values[i], b.values[i], 1e-5);
+        TITAN_EXPECT_NEAR(a.grads[i], b.grads[i], 1e-5);
+        max_grad =
+            std::max(max_grad, std::fabs(static_cast<double>(a.grads[i])));
     }
+    // The comparison is only meaningful if the gradients are not all ~0.
+    TITAN_EXPECT(max_grad > 1e-3);
 }
