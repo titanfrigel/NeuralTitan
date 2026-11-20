@@ -110,3 +110,32 @@ set_tests_properties(cli_info PROPERTIES PASS_REGULAR_EXPRESSION "CUDA: ")
 
 add_test(NAME cli_unknown_command COMMAND $<TARGET_FILE:titan> bogus)
 set_tests_properties(cli_unknown_command PROPERTIES WILL_FAIL TRUE)
+
+# Training commands on a tiny hand-written corpus (fixtures/cli/README.md).
+set(CLI_FIXTURES ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/cli)
+set(CLI_OUT ${CMAKE_CURRENT_BINARY_DIR}/cli)
+
+add_test(NAME cli_tokenizer_train
+  COMMAND $<TARGET_FILE:titan> tokenizer train --type char
+    --corpus ${CLI_FIXTURES}/tiny_corpus.txt --out ${CLI_OUT}/tok/tokenizer.json)
+
+add_test(NAME cli_train_smoke
+  COMMAND $<TARGET_FILE:titan> train --config ${CLI_FIXTURES}/tiny-config.json
+    --data ${CLI_FIXTURES}/tiny_corpus.txt --out ${CLI_OUT}/smoke)
+set_tests_properties(cli_train_smoke PROPERTIES
+  PASS_REGULAR_EXPRESSION "final val_loss [0-9.]+")
+
+# expect_failure.cmake requires exit code 1 and the pattern in the output.
+function(add_cli_failure name pattern)
+  add_test(NAME ${name}
+    COMMAND ${CMAKE_COMMAND}
+      -DEXE=$<TARGET_FILE:titan>
+      "-DARGS=${ARGN}"
+      "-DPATTERN=${pattern}"
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_failure.cmake)
+endfunction()
+
+add_cli_failure(cli_train_cuda_rejected "CUDA backend arrives in M2"
+  "train;--config;${CLI_FIXTURES}/tiny-config.json;--data;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/cuda;--device;cuda")
+add_cli_failure(cli_train_bad_config "n_kv_heads"
+  "train;--config;${CLI_FIXTURES}/bad-config.json;--data;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/bad")
