@@ -125,6 +125,12 @@ add_test(NAME cli_train_smoke
 set_tests_properties(cli_train_smoke PROPERTIES
   PASS_REGULAR_EXPRESSION "final val_loss [0-9.]+")
 
+add_test(NAME cli_train_no_newline_corpus
+  COMMAND $<TARGET_FILE:titan> train --config ${CLI_FIXTURES}/tiny-config.json
+    --data ${CLI_FIXTURES}/no_newline_corpus.txt --out ${CLI_OUT}/no_newline)
+set_tests_properties(cli_train_no_newline_corpus PROPERTIES
+  PASS_REGULAR_EXPRESSION "final val_loss [0-9.]+")
+
 # expect_failure.cmake requires exit code 1 and the pattern in the output.
 function(add_cli_failure name pattern)
   add_test(NAME ${name}
@@ -139,3 +145,5 @@ add_cli_failure(cli_train_cuda_rejected "CUDA backend arrives in M2"
   "train;--config;${CLI_FIXTURES}/tiny-config.json;--data;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/cuda;--device;cuda")
 add_cli_failure(cli_train_bad_config "n_kv_heads"
   "train;--config;${CLI_FIXTURES}/bad-config.json;--data;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/bad")
+add_cli_failure(cli_train_short_corpus "too few for a training split"
+  "train;--config;${CLI_FIXTURES}/tiny-config.json;--data;${CLI_FIXTURES}/short_corpus.txt;--out;${CLI_OUT}/short")

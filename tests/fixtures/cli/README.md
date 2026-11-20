@@ -5,3 +5,5 @@ Hand-written inputs for the `cli_*` CTest entries. They are not generated golden
 - `tiny_corpus.txt`: a few public-domain lines of Shakespeare.
 - `tiny-config.json`: a model and training config small enough to train in seconds.
 - `bad-config.json`: the same with 4 heads and `n_kv_heads` 3, which must be rejected.
+- `no_newline_corpus.txt`: one line without a newline character; training must still succeed (the sample prompt falls back to token 0).
+- `short_corpus.txt`: too few tokens for the training and validation splits; training must fail before writing anything.

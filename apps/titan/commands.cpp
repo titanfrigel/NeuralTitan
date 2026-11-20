@@ -66,6 +66,16 @@ std::int64_t parse_steps(const std::string& text) {
     return value;
 }
 
+// The prompt the sample starts from: a newline when the vocabulary has one,
+// otherwise token 0.
+std::vector<std::int32_t> sample_prompt(const tokenizer::CharTokenizer& tok) {
+    try {
+        return tok.encode("\n");
+    } catch (const Error&) {
+        return {0};
+    }
+}
+
 }  // namespace
 
 void tokenizer_train(std::span<const std::string_view> args) {
@@ -97,16 +107,16 @@ void train(std::span<const std::string_view> args) {
         io::parse_json(io::read_file(flags.at("config")));
     const std::string corpus = io::read_file(flags.at("data"));
 
-    // 1. The tokenizer: loaded, or built from the corpus and saved.
+    // Everything that can fail on bad input runs before anything is written
+    // or any training starts: config sections, tokenizer, corpus split, model,
+    // trainer and the sample prompt.
+
+    // 1. The tokenizer: loaded, or built from the corpus (and saved below).
     const bool load_tokenizer = flags.contains("tokenizer");
     const auto tok = load_tokenizer
                          ? tokenizer::CharTokenizer::from_json(io::parse_json(
                                io::read_file(flags.at("tokenizer"))))
                          : tokenizer::CharTokenizer::build(corpus);
-    fs::create_directories(out);
-    if (!load_tokenizer) {
-        io::write_file(out / "tokenizer.json", io::to_json(tok.to_json()));
-    }
 
     // The train section, with --steps replacing train.steps before validation
     // so that warmup < steps is still enforced.
@@ -133,23 +143,31 @@ void train(std::span<const std::string_view> args) {
                                                  tokens.end() - n_val);
     const std::vector<std::int32_t> val_tokens(tokens.end() - n_val,
                                                tokens.end());
-    io::write_token_file(out / "train.bin", train_tokens);
-    io::write_token_file(out / "val.bin", val_tokens);
 
-    // 3. The model.
+    // 3. The model and the trainer (which checks seq against context_length).
     model::Model model(
         model::parse_model_config(config.at("model"), tok.vocab_size()));
     Rng init_rng(tc.seed);
     model.init(init_rng);
-
-    // 4. Train.
     runtime::Trainer trainer(model, tc, train_tokens, val_tokens, std::cout);
+
+    // 4. The sample prompt: a newline when the vocabulary has one, else token
+    // 0.
+    const std::vector<std::int32_t> prompt = sample_prompt(tok);
+
+    // 5. Only now write the outputs, then train.
+    fs::create_directories(out);
+    if (!load_tokenizer) {
+        io::write_file(out / "tokenizer.json", io::to_json(tok.to_json()));
+    }
+    io::write_token_file(out / "train.bin", train_tokens);
+    io::write_token_file(out / "val.bin", val_tokens);
     const runtime::TrainResult result = trainer.run();
 
-    // 5. Sample 500 characters after a newline.
+    // Sample 500 characters from the prompt.
     Rng sample_rng(tc.seed);
     const std::vector<std::int32_t> ids = runtime::generate_naive(
-        model, tok.encode("\n"), kSampleChars, kSampleTemperature, sample_rng);
+        model, prompt, kSampleChars, kSampleTemperature, sample_rng);
     const std::string sample = tok.decode(ids);
     io::write_file(out / "sample.txt", sample);
     std::cout << "--- sample ---\n" << sample << "\n--- end sample ---\n";
