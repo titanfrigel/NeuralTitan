@@ -1,3 +1,5 @@
+#include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <string>
 #include <vector>
@@ -56,6 +58,39 @@ TITAN_TEST(Attention, CausalityHolds) {
             TITAN_EXPECT_EQ(changed, t >= 3);
         }
     }
+}
+
+TITAN_TEST(Attention, ForwardMatchesHandComputed) {
+    // One head of size 2, no RoPE, identity projections: q = k = v = x and
+    // the output is softmax(causal(q·kᵀ / √2))·v.
+    Attention attn("attn", 2, 1, 1, PositionEncoding::None, kTheta);
+    std::vector<titan::nn::Parameter*> params;
+    attn.parameters(params);
+    for (titan::nn::Parameter* p : params) {
+        float* w = p->value.data();
+        w[0] = 1.0f;
+        w[1] = 0.0f;
+        w[2] = 0.0f;
+        w[3] = 1.0f;
+    }
+    const std::vector<float> xs = {0.5f, -1.0f, 2.0f, 0.25f};
+    const Tensor x = Tensor::from_vector(xs, {1, 2, 2});
+    ForwardContext ctx{.training = false, .pos_offset = 0};
+    const std::vector<float> y = attn.forward(x, ctx).to_vector();
+
+    // Row 0 sees only itself, so its output is v0 = x0.
+    TITAN_EXPECT_NEAR(y[0], xs[0], 1e-6f);
+    TITAN_EXPECT_NEAR(y[1], xs[1], 1e-6f);
+    // Row 1 sees rows 0 and 1 with weights softmax(s0, s1).
+    const double s0 = (xs[2] * xs[0] + xs[3] * xs[1]) / std::sqrt(2.0);
+    const double s1 = (xs[2] * xs[2] + xs[3] * xs[3]) / std::sqrt(2.0);
+    const double m = std::max(s0, s1);
+    const double e0 = std::exp(s0 - m);
+    const double e1 = std::exp(s1 - m);
+    const double p0 = e0 / (e0 + e1);
+    const double p1 = e1 / (e0 + e1);
+    TITAN_EXPECT_NEAR(y[2], static_cast<float>(p0 * xs[0] + p1 * xs[2]), 1e-6f);
+    TITAN_EXPECT_NEAR(y[3], static_cast<float>(p0 * xs[1] + p1 * xs[3]), 1e-6f);
 }
 
 TITAN_TEST(Attention, GradCheckMHA) {
