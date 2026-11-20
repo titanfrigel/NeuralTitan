@@ -40,6 +40,7 @@ Run from the repository root in PowerShell:
 Current:
 
 - `src/core/`: the `core` layer (errors, device, storage, caching allocator, tensor).
+- `src/tokenizer/`: the `tokenizer` layer (character-level tokenizer).
 - `apps/titan/`: the `titan` executable.
 - `tests/`: the test runner and tests. `tests/harness/` is the project's own test harness; `tests/layer_check/` holds fixtures for the layer include check.
 - `scripts/`: `check.ps1`, `format.ps1`, `dev-env.ps1` and the layer include check.

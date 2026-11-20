@@ -1,5 +1,6 @@
 add_subdirectory(core)
 add_subdirectory(io)
+add_subdirectory(tokenizer)
 add_subdirectory(ops)
 add_subdirectory(nn)
 add_subdirectory(optim)
