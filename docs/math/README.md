@@ -23,3 +23,4 @@ Notes about infrastructure with no gradient, such as tensor memory, replace the 
 | [Reductions](reduce.md) | Sum, sum of squares, row maximum, sum over leading dimensions and the finiteness check. |
 | [Matmul](matmul.md) | Matrix product with transposes and batching, its gradients, and the parallel CPU kernel with its deterministic accumulation order. |
 | [Softmax](softmax.md) | Row softmax and causal softmax, why the mask comes before the maximum, and the backward formula from the softmax Jacobian. |
+| [Normalization](normalization.md) | RMSNorm and LayerNorm, with the backward formulas derived including the projection term. |
