@@ -14,7 +14,8 @@ float CrossEntropyLoss::forward(const Tensor& logits,
                     to_string(logits.shape()));
     const std::int64_t vocab = logits.dim(-1);
     const std::int64_t rows = logits.numel() / vocab;
-    Tensor dlogits2d = Tensor::zeros({rows, vocab}, Device::CPU);
+    // A placeholder: ops::cross_entropy assigns the (rows, vocab) gradient.
+    Tensor dlogits2d = Tensor::empty({1}, Device::CPU);
     // ops::cross_entropy checks the target count and range.
     const float loss =
         ops::cross_entropy(logits.reshape({rows, vocab}), targets, &dlogits2d);
