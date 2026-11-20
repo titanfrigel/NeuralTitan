@@ -17,7 +17,7 @@ namespace titan::nn {
 // to that Parameter, adds its gradient into the same Parameter::grad, and
 // lists no parameters of its own (the embedding lists the shared one). The
 // Parameter must outlive the head. Untied mode owns "<name>.weight".
-// See docs/math/linear.md.
+// See docs/math/linear.md and docs/math/model.md.
 class LMHead : public Module {
 public:
     explicit LMHead(Parameter& tied_embedding_weight);

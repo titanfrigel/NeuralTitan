@@ -40,6 +40,7 @@ target_sources(titan_tests PRIVATE
   io/token_file_test.cpp
   tokenizer/char_tokenizer_test.cpp
   model/config_test.cpp
+  model/model_test.cpp
 )
 # The CUDA tests call the runtime directly, so they link cudart themselves
 # instead of relying on titan_core, which keeps it private.

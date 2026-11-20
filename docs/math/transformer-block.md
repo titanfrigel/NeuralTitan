@@ -4,7 +4,7 @@
 
 One layer of a decoder-only transformer: a causal [attention](attention.md) sublayer that lets each position read from the earlier ones, then a position-wise [feed-forward](mlp.md) sublayer, each wrapped in a pre-norm residual connection. The block keeps the model dimension: it maps `(B, T, dim)` to `(B, T, dim)`, so blocks stack.
 
-Pre-norm means each sublayer sees a normalized copy of the residual stream `x` and adds its output back to the unnormalized `x`. The stream itself is never normalized inside a block, which keeps a direct identity path from the last layer to the embedding and makes deep pre-norm stacks easier to train than post-norm ones. A final norm after the last block (see `docs/math/model.md`) normalizes the stream once before the head.
+Pre-norm means each sublayer sees a normalized copy of the residual stream `x` and adds its output back to the unnormalized `x`. The stream itself is never normalized inside a block, which keeps a direct identity path from the last layer to the embedding and makes deep pre-norm stacks easier to train than post-norm ones. A final norm after the last block (see [Model](model.md)) normalizes the stream once before the head.
 
 `nn::BlockSpec` picks the variant:
 
