@@ -93,7 +93,7 @@ std::int64_t read_size(const io::JsonValue& v, const std::string& path) {
     return n;
 }
 
-// A finite JSON number > 0 that fits in a float.
+// A finite JSON number > 0 that fits in a float and stays > 0 as one.
 float read_positive_float(const io::JsonValue& v, const std::string& path) {
     if (!v.is_number()) {
         config_error(path,
@@ -104,7 +104,12 @@ float read_positive_float(const io::JsonValue& v, const std::string& path) {
         config_error(path,
                      "must be a positive float, got " + std::to_string(d));
     }
-    return static_cast<float>(d);
+    const float f = static_cast<float>(d);
+    // A tiny positive double such as 1e-50 rounds to 0.0f.
+    if (f == 0.0f) {
+        config_error(path, "is too small for a float and rounds to zero");
+    }
+    return f;
 }
 
 bool read_bool(const io::JsonValue& v, const std::string& path) {

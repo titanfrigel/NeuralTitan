@@ -192,6 +192,10 @@ TITAN_TEST(ModelConfig, RejectsMalformed) {
     expect_rejects(
         R"({"dim": 16, "context_length": 32, "norm_eps": -1, )" + blocks + "}",
         "model.norm_eps");
+    // Positive, but rounds to 0.0f as a float.
+    expect_rejects(R"({"dim": 16, "context_length": 32, "norm_eps": 1e-50, )" +
+                       blocks + "}",
+                   "model.norm_eps");
     expect_rejects(R"({"dim": 16, "context_length": 32,
         "tied_embeddings": 1, )" +
                        blocks + "}",
