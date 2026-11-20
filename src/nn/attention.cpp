@@ -66,6 +66,8 @@ Attention::Attention(std::string name, std::int64_t dim, std::int64_t n_heads,
       o_proj_(name + ".o_proj", n_heads * head_dim_, dim, false) {}
 
 Tensor Attention::forward(const Tensor& x, ForwardContext& ctx) {
+    TITAN_CHECK(ctx.pos_offset == 0,
+                name_ + ": pos_offset > 0 needs the KV cache (M3)");
     TITAN_CHECK(x.rank() == 3 && x.dim(2) == dim_,
                 name_ + ": input must be (B, T, " + std::to_string(dim_) +
                     "), got " + to_string(x.shape()));

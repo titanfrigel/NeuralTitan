@@ -21,7 +21,9 @@ enum class PositionEncoding { Rope, None };
 // without bias. Each KV head serves n_heads / n_kv_heads query heads; with
 // n_kv_heads == n_heads this is ordinary multi-head attention. Query row t
 // sees key j when j <= t + ctx.pos_offset, and RoPE uses position
-// ctx.pos_offset + t. See docs/math/attention.md.
+// ctx.pos_offset + t. forward() rejects pos_offset > 0 until the KV cache
+// exists (M3), since there are no cached keys for the offset to skip over.
+// See docs/math/attention.md.
 class Attention : public Module {
 public:
     // Throws unless n_heads >= 1, n_kv_heads >= 1, dim % n_heads == 0,

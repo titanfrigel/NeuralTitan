@@ -162,3 +162,10 @@ TITAN_TEST(Attention, BackwardWithoutTrainingForwardThrows) {
     const Tensor y = attn.forward(x, ctx);
     TITAN_EXPECT_THROWS(attn.backward(y), titan::Error);
 }
+
+TITAN_TEST(Attention, PositionOffsetNeedsKvCache) {
+    Attention attn("attn", 8, 2, 2, PositionEncoding::Rope, kTheta);
+    ForwardContext ctx{.training = false, .pos_offset = 1};
+    const Tensor x = Tensor::zeros({1, 3, 8}, titan::Device::CPU);
+    TITAN_EXPECT_THROWS(attn.forward(x, ctx), titan::Error);
+}
