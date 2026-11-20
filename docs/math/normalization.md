@@ -38,7 +38,7 @@ Let `dy = ∂L/∂y` and `g_i = dy_i · w_i`, the gradient with respect to the n
 
 `∂L/∂w_i = Σ_rows dy_i · x̂_i`, `∂L/∂b_i = Σ_rows dy_i`
 
-The sum runs over all rows, because every row shares the same `w` and `b`. The code adds each row's contribution into the accumulators with `+=`. For RMSNorm `x̂_i = x_i · r`, so `∂L/∂w_i = Σ_rows dy_i · x_i · r`.
+The sum runs over all rows, because every row shares the same `w` and `b`. The code sums the rows in `double` and applies one float `+=` per parameter at the end. For RMSNorm `x̂_i = x_i · r`, so `∂L/∂w_i = Σ_rows dy_i · x_i · r`.
 
 ### RMSNorm input
 
