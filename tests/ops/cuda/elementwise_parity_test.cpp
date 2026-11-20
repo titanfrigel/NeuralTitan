@@ -23,7 +23,9 @@ namespace {
 
 // The three shape classes every parity test covers: a single element, a
 // shape that is no multiple of 16 or 32, and one of at least 2^20 elements
-// (1024 * 1025 = 1,049,600), which needs many blocks of the grid-stride loop.
+// (1024 * 1025 = 1,049,600), which fills 4100 blocks of kBlock threads, one
+// element per thread. The grid-stride loop proper, a thread handling several
+// elements, is covered by ElementwiseParity.GridStrideCoversMoreThanMaxBlocks.
 const std::vector<Shape>& parity_shapes() {
     static const std::vector<Shape> shapes = {{1}, {37, 129}, {1024, 1025}};
     return shapes;
@@ -63,8 +65,31 @@ TITAN_TEST(OpsDispatch, MixedDevicesThrow) {
 
     // In-place and backward ops reject a mix of devices too.
     Tensor target = Tensor::zeros({2, 3}, Device::CUDA);
-    TITAN_EXPECT_THROWS(ops::add_(target, cpu), titan::Error);
-    TITAN_EXPECT_THROWS(ops::silu_backward(cpu, gpu), titan::Error);
+    try {
+        ops::add_(target, cpu);
+        TITAN_EXPECT(false);
+    } catch (const titan::Error& e) {
+        TITAN_EXPECT(std::string(e.what()).find(
+                         "ops::add_: tensors are on different devices "
+                         "(cuda vs cpu)") != std::string::npos);
+    }
+    const auto silu_backward = [](const Tensor& x, const Tensor& dy) {
+        ops::silu_backward(x, dy);
+    };
+    TITAN_EXPECT(error_of(silu_backward, cpu, gpu)
+                     .find("ops::silu_backward: tensors are on different "
+                           "devices (cpu vs cuda)") != std::string::npos);
+}
+
+// grid_for caps a launch at kMaxBlocks blocks of kBlock threads, so this
+// tensor (4097 * 4097 = 16,785,409 > 65535 * 256 = 16,776,960) makes some
+// threads handle two elements.
+TITAN_TEST(ElementwiseParity, GridStrideCoversMoreThanMaxBlocks) {
+    TITAN_REQUIRE_CUDA();
+    const Tensor x = random_tensor({4097, 4097}, 17);
+    TITAN_EXPECT_PARITY(ops::scale(x, 0.5f),
+                        ops::scale(x.to(Device::CUDA), 0.5f), kParityAtol,
+                        kParityRtol);
 }
 
 TITAN_TEST(ElementwiseParity, Add) {

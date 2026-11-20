@@ -62,6 +62,17 @@ TITAN_TEST(Parity, NanFails) {
     TITAN_EXPECT(r.detail.find("worst at index 1") != std::string::npos);
 }
 
+TITAN_TEST(Parity, EqualInfinitiesMatchButNanStillFails) {
+    TITAN_REQUIRE_CUDA();
+    const float inf = std::numeric_limits<float>::infinity();
+    const float nan = std::numeric_limits<float>::quiet_NaN();
+    TITAN_EXPECT(
+        check_parity(on_cpu({inf, -inf}), on_cuda({inf, -inf}), 1e-5, 1e-4).ok);
+    TITAN_EXPECT(!check_parity(on_cpu({inf}), on_cuda({-inf}), 1e-5, 1e-4).ok);
+    TITAN_EXPECT(!check_parity(on_cpu({inf}), on_cuda({1.0f}), 1e-5, 1e-4).ok);
+    TITAN_EXPECT(!check_parity(on_cpu({nan}), on_cuda({nan}), 1e-5, 1e-4).ok);
+}
+
 TITAN_TEST(Parity, RejectsShapeAndDeviceMismatch) {
     TITAN_REQUIRE_CUDA();
     const Tensor c = Tensor::zeros({2, 3}, Device::CPU);

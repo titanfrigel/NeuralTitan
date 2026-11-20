@@ -34,18 +34,23 @@ ParityResult check_parity(const Tensor& cpu, const Tensor& cuda, double atol,
     const std::vector<float> c = cpu.to_vector();
     const std::vector<float> g = cuda.to_vector();
     std::size_t worst = 0;
-    // How far the worst element exceeds its bound; infinity for a NaN.
+    // How far the worst element exceeds its bound; infinity for a NaN or an
+    // infinite difference.
     double worst_excess = -std::numeric_limits<double>::infinity();
     std::size_t failures = 0;
     for (std::size_t i = 0; i < c.size(); ++i) {
         const double cv = c[i];
         const double gv = g[i];
+        // Identical values pass, which also matches equal infinities (whose
+        // difference is NaN); a NaN is never equal to anything.
+        if (cv == gv) continue;
         const double bound = atol + rtol * std::fabs(cv);
         const double diff = std::fabs(cv - gv);
-        // Written as !(diff <= bound) so that a NaN counts as a failure.
-        if (!(diff <= bound)) {
+        // Written as !(diff <= bound) so that a NaN counts as a failure. An
+        // unequal pair with an infinity is one too: its bound is infinite.
+        if (!(diff <= bound) || std::isinf(cv) || std::isinf(gv)) {
             ++failures;
-            const double excess = std::isnan(diff)
+            const double excess = !std::isfinite(diff)
                                       ? std::numeric_limits<double>::infinity()
                                       : diff - bound;
             if (excess > worst_excess) {
