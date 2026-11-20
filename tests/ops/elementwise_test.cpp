@@ -93,9 +93,7 @@ TITAN_TEST(Elementwise, SiluGradCheck) {
     const Tensor grad = ops::silu_backward(x, r);
     const auto result =
         check_gradient([&] { return ops::silu(x); }, x, grad, r);
-    TITAN_EXPECT(result.ok);
-    if (!result.ok)
-        titan::test::report_failure(__FILE__, __LINE__, result.detail);
+    TITAN_EXPECT_GRAD_OK(result);
 }
 
 TITAN_TEST(Elementwise, GeluGradCheck) {
@@ -105,7 +103,5 @@ TITAN_TEST(Elementwise, GeluGradCheck) {
     const Tensor grad = ops::gelu_backward(x, r);
     const auto result =
         check_gradient([&] { return ops::gelu(x); }, x, grad, r);
-    TITAN_EXPECT(result.ok);
-    if (!result.ok)
-        titan::test::report_failure(__FILE__, __LINE__, result.detail);
+    TITAN_EXPECT_GRAD_OK(result);
 }

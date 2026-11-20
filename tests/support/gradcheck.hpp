@@ -5,6 +5,7 @@
 
 #include "core/rng.hpp"
 #include "core/tensor.hpp"
+#include "harness/test.hpp"
 
 namespace titan::test {
 
@@ -32,3 +33,14 @@ GradCheckResult check_gradient(const std::function<Tensor()>& forward,
                                const Tensor& r);
 
 }  // namespace titan::test
+
+// Records one failure carrying the detail text when a GradCheckResult is not
+// ok.
+#define TITAN_EXPECT_GRAD_OK(result)                                        \
+    do {                                                                    \
+        const ::titan::test::GradCheckResult& titan_grad_result = (result); \
+        if (!titan_grad_result.ok) {                                        \
+            ::titan::test::report_failure(__FILE__, __LINE__,               \
+                                          titan_grad_result.detail);        \
+        }                                                                   \
+    } while (false)

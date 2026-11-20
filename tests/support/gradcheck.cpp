@@ -59,8 +59,10 @@ GradCheckResult check_gradient(const std::function<Tensor()>& forward,
 
         const double numeric = (plus - minus) / (2.0 * kEps);
         const double analytic = pg[i];
-        if (std::fabs(analytic - numeric) >
-            kAbsTol + kRelTol * std::fabs(numeric)) {
+        // Written as a negated <= so that NaN (from a NaN gradient or a
+        // non-finite loss) fails instead of slipping past a > comparison.
+        if (!(std::fabs(analytic - numeric) <=
+              kAbsTol + kRelTol * std::fabs(numeric))) {
             return {false, "element " + std::to_string(i) + ": analytic " +
                                std::to_string(analytic) + ", numeric " +
                                std::to_string(numeric)};
