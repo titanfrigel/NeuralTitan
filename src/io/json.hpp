@@ -26,6 +26,9 @@ public:
     static JsonValue string(std::string value);
     static JsonValue array();
     static JsonValue object();
+    // `members` must have distinct keys (the parser guarantees it); use set()
+    // when building an object in code.
+    static JsonValue object(Object members);
 
     bool is_null() const;
     bool is_bool() const;

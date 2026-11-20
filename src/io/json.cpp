@@ -1,10 +1,13 @@
 #include "io/json.hpp"
 
+#include <algorithm>
 #include <charconv>
 #include <cmath>
 #include <system_error>
+#include <unordered_set>
 
 #include "core/error.hpp"
+#include "core/utf8.hpp"
 
 namespace titan::io {
 
@@ -142,32 +145,33 @@ private:
             fail("nesting deeper than " + std::to_string(kMaxDepth));
         }
         ++pos_;  // '{'
-        JsonValue result = JsonValue::object();
+        JsonValue::Object members;
+        std::unordered_set<std::string> seen;
         skip_ws();
         if (!at_end() && peek() == '}') {
             ++pos_;
-            return result;
+            return JsonValue::object(std::move(members));
         }
         for (;;) {
             skip_ws();
             if (at_end() || peek() != '"') fail("expected a string key");
             const std::size_t key_pos = pos_;
             std::string key = parse_string();
-            if (result.find(key) != nullptr) {
+            if (!seen.insert(key).second) {
                 fail_at(key_pos, "duplicate key \"" + key + "\"");
             }
             skip_ws();
             if (at_end() || peek() != ':') fail("expected ':' after key");
             ++pos_;
             skip_ws();
-            result.set(std::move(key), parse_value(depth + 1));
+            members.emplace_back(std::move(key), parse_value(depth + 1));
             skip_ws();
             if (at_end()) fail("unexpected end of input in object");
             if (peek() == ',') {
                 ++pos_;
             } else if (peek() == '}') {
                 ++pos_;
-                return result;
+                return JsonValue::object(std::move(members));
             } else {
                 fail("expected ',' or '}' in object");
             }
@@ -176,6 +180,33 @@ private:
 
     bool digit_at(std::size_t p) const {
         return p < text_.size() && text_[p] >= '0' && text_[p] <= '9';
+    }
+
+    // True when the number text [start, end), already known to be valid,
+    // has a decimal magnitude below 1, so an out-of-range conversion means
+    // underflow rather than overflow.
+    bool underflows(std::size_t start, std::size_t end) const {
+        std::size_t p = start;
+        if (text_[p] == '-') ++p;
+        long long int_digits = 0;  // integer digits without leading zeros
+        while (p < end && text_[p] >= '0' && text_[p] <= '9') {
+            if (int_digits > 0 || text_[p] != '0') ++int_digits;
+            ++p;
+        }
+        while (p < end && text_[p] != 'e' && text_[p] != 'E') ++p;
+        long long exponent = 0;
+        if (p < end) {
+            ++p;
+            bool negative = false;
+            if (text_[p] == '+' || text_[p] == '-')
+                negative = text_[p++] == '-';
+            for (; p < end; ++p) {
+                exponent =
+                    std::min(exponent * 10 + (text_[p] - '0'), 1000000000LL);
+            }
+            if (negative) exponent = -exponent;
+        }
+        return int_digits + exponent < 0;
     }
 
     // number = [ "-" ] int [ frac ] [ exp ]; int = "0" / digit1-9 *digit
@@ -207,7 +238,10 @@ private:
         const char* first = text_.data() + start;
         const char* last = text_.data() + p;
         const auto res = std::from_chars(first, last, value);
-        if (res.ec != std::errc() || res.ptr != last || !std::isfinite(value)) {
+        if (res.ec == std::errc::result_out_of_range && underflows(start, p)) {
+            value = text_[start] == '-' ? -0.0 : 0.0;
+        } else if (res.ec != std::errc() || res.ptr != last ||
+                   !std::isfinite(value)) {
             fail_at(start, "number out of range");
         }
         pos_ = p;
@@ -236,24 +270,6 @@ private:
         return v;
     }
 
-    static void append_utf8(std::string& out, unsigned cp) {
-        if (cp < 0x80) {
-            out += static_cast<char>(cp);
-        } else if (cp < 0x800) {
-            out += static_cast<char>(0xC0 | (cp >> 6));
-            out += static_cast<char>(0x80 | (cp & 0x3F));
-        } else if (cp < 0x10000) {
-            out += static_cast<char>(0xE0 | (cp >> 12));
-            out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
-            out += static_cast<char>(0x80 | (cp & 0x3F));
-        } else {
-            out += static_cast<char>(0xF0 | (cp >> 18));
-            out += static_cast<char>(0x80 | ((cp >> 12) & 0x3F));
-            out += static_cast<char>(0x80 | ((cp >> 6) & 0x3F));
-            out += static_cast<char>(0x80 | (cp & 0x3F));
-        }
-    }
-
     std::string parse_string() {
         const std::size_t open = pos_;
         ++pos_;  // opening quote
@@ -266,6 +282,16 @@ private:
                 return out;
             }
             if (c < 0x20) fail("control character in string");
+            if (c >= 0x80) {
+                char32_t cp = 0;
+                std::size_t len = 0;
+                if (!decode_utf8_at(text_, pos_, cp, len)) {
+                    fail("invalid UTF-8 in string");
+                }
+                out.append(text_.substr(pos_, len));
+                pos_ += len;
+                continue;
+            }
             if (c != '\\') {
                 out += static_cast<char>(c);
                 ++pos_;
@@ -317,7 +343,7 @@ private:
                         }
                         cp = 0x10000 + ((cp - 0xD800) << 10) + (low - 0xDC00);
                     }
-                    append_utf8(out, cp);
+                    out += encode_utf8(static_cast<char32_t>(cp));
                     break;
                 }
                 default:
@@ -466,6 +492,12 @@ JsonValue JsonValue::array() {
 JsonValue JsonValue::object() {
     JsonValue v;
     v.data_ = Object{};
+    return v;
+}
+
+JsonValue JsonValue::object(Object members) {
+    JsonValue v;
+    v.data_ = std::move(members);
     return v;
 }
 

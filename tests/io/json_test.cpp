@@ -1,3 +1,4 @@
+#include <cmath>
 #include <cstdint>
 #include <filesystem>
 #include <string>
@@ -109,7 +110,7 @@ TITAN_TEST(Json, RejectsMalformed) {
         "01",
         R"({"a":1}x)",
         R"({"a":1,"a":2})",
-        std::string(65, '['),
+        std::string(65, '[') + "1" + std::string(65, ']'),
         R"("abc)",
         "\"a\nb\"",
         "",
@@ -198,4 +199,56 @@ TITAN_TEST(File, RoundTripAndLimit) {
         TITAN_EXPECT(has(e.what(), "titan_io_file_test.bin"));
     }
     std::filesystem::remove(p);
+}
+
+TITAN_TEST(Json, SpecificRejections) {
+    const std::string too_deep =
+        std::string(65, '[') + "1" + std::string(65, ']');
+    TITAN_EXPECT(has(error_of(too_deep), "nesting deeper than 64"));
+    TITAN_EXPECT(has(error_of(std::string(65, '[')), "nesting deeper than 64"));
+    TITAN_EXPECT(has(error_of("01"), "leading zero"));
+    TITAN_EXPECT(has(error_of("[01]"), "leading zero"));
+    TITAN_EXPECT(has(error_of("-01"), "leading zero"));
+    TITAN_EXPECT(has(error_of("1e999"), "number out of range"));
+    TITAN_EXPECT(has(error_of("-1e999"), "number out of range"));
+}
+
+TITAN_TEST(Json, InvalidUtf8InStringsIsRejected) {
+    const std::string cases[] = {
+        "\"\xC3\"",              // truncated sequence
+        "\"\xC0\xAF\"",          // overlong
+        "\"\xED\xA0\x80\"",      // encoded surrogate
+        "\"\x80\"",              // stray continuation
+        "\"\xF4\x90\x80\x80\"",  // above U+10FFFF
+    };
+    for (const std::string& c : cases) {
+        const std::string msg = error_of("[\n" + c + "]");
+        TITAN_EXPECT(has(msg, "invalid UTF-8"));
+        TITAN_EXPECT(has(msg, "line 2, column 2"));
+    }
+    TITAN_EXPECT_EQ(parsed_string("\"\xC3\xA9\xF0\x9F\x98\x80\""),
+                    std::string("\xC3\xA9\xF0\x9F\x98\x80"));
+}
+
+TITAN_TEST(Json, UnderflowIsAccepted) {
+    TITAN_EXPECT_EQ(parse_json("1e-400").as_number(), 0.0);
+    TITAN_EXPECT_EQ(parse_json("-1e-400").as_number(), 0.0);
+    TITAN_EXPECT(std::signbit(parse_json("-1e-400").as_number()));
+    TITAN_EXPECT_EQ(parse_json("0.000e-9999999999999").as_number(), 0.0);
+    const double sub = parse_json("5e-324").as_number();
+    TITAN_EXPECT(sub > 0.0 && sub < 1e-300);
+}
+
+TITAN_TEST(Json, LargeObjectParsesInLinearTime) {
+    std::string text = "{";
+    for (int i = 0; i < 20000; ++i) {
+        if (i > 0) text += ',';
+        text += "\"key" + std::to_string(i) + "\":" + std::to_string(i);
+    }
+    text += "}";
+    const JsonValue v = parse_json(text);
+    TITAN_EXPECT_EQ(v.as_object().size(), std::size_t{20000});
+    TITAN_EXPECT_EQ(v.at("key19999").as_int(), std::int64_t{19999});
+    TITAN_EXPECT(has(error_of(text.substr(0, text.size() - 1) + ",\"key7\":1}"),
+                     "duplicate key"));
 }
