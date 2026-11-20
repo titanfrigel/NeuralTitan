@@ -19,3 +19,4 @@ Notes about infrastructure with no gradient, such as tensor memory, replace the 
 | Note | Covers |
 | --- | --- |
 | [Tensor memory](tensor-memory.md) | Row-major layout, views that share storage, host and device memory, the CUDA caching allocator. |
+| [Elementwise ops](elementwise.md) | Add, multiply, scale, SiLU and GELU, with their gradients. |
