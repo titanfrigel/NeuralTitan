@@ -5,9 +5,11 @@
 
 #include <cuda_runtime.h>
 
+#include <cstddef>
 #include <cstdint>
 #include <source_location>
 
+#include "core/cuda_allocator.hpp"
 #include "core/cuda_check.hpp"
 
 namespace titan::ops::cuda {
@@ -52,5 +54,29 @@ __device__ inline std::int64_t global_thread_index() {
 __device__ inline std::int64_t grid_stride() {
     return static_cast<std::int64_t>(gridDim.x) * blockDim.x;
 }
+
+// Scratch device memory of `count` elements of T (partial sums, flags, uploaded
+// ids) for the duration of one call. It comes from the caching allocator, so
+// repeated calls reuse blocks instead of calling the driver, and it is
+// returned on every path, including a thrown error. The contents are
+// uninitialized.
+template <typename T>
+class DeviceBuffer {
+public:
+    explicit DeviceBuffer(std::int64_t count)
+        : bytes_(static_cast<std::size_t>(count) * sizeof(T)),
+          ptr_(static_cast<T*>(
+              CudaCachingAllocator::instance().allocate(bytes_))) {}
+    ~DeviceBuffer() {
+        CudaCachingAllocator::instance().deallocate(ptr_, bytes_);
+    }
+    DeviceBuffer(const DeviceBuffer&) = delete;
+    DeviceBuffer& operator=(const DeviceBuffer&) = delete;
+    T* get() const { return ptr_; }
+
+private:
+    std::size_t bytes_;
+    T* ptr_;
+};
 
 }  // namespace titan::ops::cuda

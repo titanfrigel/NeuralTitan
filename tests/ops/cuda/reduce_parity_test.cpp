@@ -112,3 +112,19 @@ TITAN_TEST(AllFiniteParity, DetectsNanAndInf) {
         }
     }
 }
+
+// 4097 * 4097 = 16,785,409 > 65535 * 256 = 16,776,960 elements, so the grid is
+// capped and some threads accumulate more than one element in pass 1.
+TITAN_TEST(ReduceParity, SumAndAllFiniteBeyondMaxBlocks) {
+    TITAN_REQUIRE_CUDA();
+    const Tensor x = random_tensor({4097, 4097}, 10);
+    const Tensor g = x.to(Device::CUDA);
+    expect_close(ops::sum(x), ops::sum(g));
+    expect_close(ops::sum_squares(x), ops::sum_squares(g));
+    TITAN_EXPECT(ops::all_finite(g));
+
+    std::vector<float> v = x.to_vector();
+    v.back() = std::numeric_limits<float>::infinity();
+    const Tensor bad = Tensor::from_vector(v, x.shape(), Device::CUDA);
+    TITAN_EXPECT(!ops::all_finite(bad));
+}

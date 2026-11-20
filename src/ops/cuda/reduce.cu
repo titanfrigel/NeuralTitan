@@ -1,6 +1,5 @@
 #include "ops/cuda/reduce.hpp"
 
-#include <cstddef>
 #include <cstdint>
 
 #include "ops/cuda/common.cuh"
@@ -8,25 +7,6 @@
 namespace titan::ops::cuda {
 
 namespace {
-
-// Owns a device allocation for the scratch of a reduction (the partial sums,
-// the flag) and frees it on every path, including a thrown error.
-template <typename T>
-class DeviceBuffer {
-public:
-    explicit DeviceBuffer(std::int64_t count) {
-        TITAN_CUDA_CHECK(
-            cudaMalloc(reinterpret_cast<void**>(&ptr_),
-                       static_cast<std::size_t>(count) * sizeof(T)));
-    }
-    ~DeviceBuffer() { cudaFree(ptr_); }
-    DeviceBuffer(const DeviceBuffer&) = delete;
-    DeviceBuffer& operator=(const DeviceBuffer&) = delete;
-    T* get() const { return ptr_; }
-
-private:
-    T* ptr_ = nullptr;
-};
 
 // Sums shared[0..kBlock) in a fixed tree: at each step thread t adds the value
 // of thread t + offset, halving offset from kBlock / 2 down to 1. The order
