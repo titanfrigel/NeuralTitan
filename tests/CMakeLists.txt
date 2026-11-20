@@ -28,6 +28,7 @@ target_sources(titan_tests PRIVATE
   ops/embedding_test.cpp
   ops/cross_entropy_test.cpp
   ops/adamw_test.cpp
+  ops/layout_test.cpp
   nn/linear_test.cpp
   nn/norm_module_test.cpp
   nn/mlp_test.cpp
