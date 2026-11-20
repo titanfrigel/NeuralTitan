@@ -9,26 +9,6 @@
 
 namespace titan::nn {
 
-namespace {
-
-// y[r][:] += bias for every row r. ops has no broadcast add yet, and the CPU
-// reference is all that exists in M1.
-void add_bias_rows(Tensor& y2d, const Tensor& bias) {
-    TITAN_CHECK(y2d.device() == Device::CPU && bias.device() == Device::CPU,
-                "Linear: bias add arrives for CUDA in M2");
-    const std::int64_t rows = y2d.dim(0);
-    const std::int64_t cols = y2d.dim(1);
-    float* y = y2d.data();
-    const float* b = bias.data();
-    for (std::int64_t r = 0; r < rows; ++r) {
-        for (std::int64_t c = 0; c < cols; ++c) {
-            y[r * cols + c] += b[c];
-        }
-    }
-}
-
-}  // namespace
-
 Linear::Linear(std::string name, std::int64_t in, std::int64_t out, bool bias,
                Device device)
     : name_(name),
@@ -48,7 +28,7 @@ Tensor Linear::forward(const Tensor& x, ForwardContext& ctx) {
     const Tensor x2d = x.reshape({rows, in_});
     Tensor y2d = ops::matmul(x2d, weight_.value, false, true);
     if (bias_) {
-        add_bias_rows(y2d, bias_->value);
+        ops::add_rowwise_(y2d, bias_->value);
     }
     if (ctx.training) {
         x_ = x;

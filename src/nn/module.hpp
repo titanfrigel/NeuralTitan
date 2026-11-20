@@ -33,6 +33,10 @@ struct ForwardContext {
 // needs; backward() returns the gradient with respect to the input and adds
 // (+=) the gradients of its parameters to Parameter::grad, so gradients
 // accumulate across calls until zero_grad().
+//
+// A training-mode forward keeps references to its input and intermediate
+// tensors (they share storage, nothing is copied). Callers must not modify an
+// input in place between forward() and backward().
 class Module {
 public:
     Module() = default;
