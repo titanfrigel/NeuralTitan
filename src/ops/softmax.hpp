@@ -6,8 +6,7 @@
 
 namespace titan::ops {
 
-// Softmax over CPU tensors. Row sums accumulate in double.
-// A CUDA tensor throws "ops::<name>: CUDA implementation arrives in M2".
+// Softmax. Row sums accumulate in double.
 
 // Softmax over the last dimension, with the row maximum subtracted first.
 Tensor softmax(const Tensor& x);

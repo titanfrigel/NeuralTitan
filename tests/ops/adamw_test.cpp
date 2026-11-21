@@ -1,10 +1,8 @@
 #include <cstdint>
-#include <string>
 #include <vector>
 
 #include "core/error.hpp"
 #include "core/tensor.hpp"
-#include "harness/cuda.hpp"
 #include "harness/test.hpp"
 #include "ops/adamw.hpp"
 
@@ -85,20 +83,4 @@ TITAN_TEST(AdamW, InvalidArgumentsThrow) {
                         titan::Error);
     TITAN_EXPECT_THROWS(ops::adamw_update(p, g, m, wrong, hyper(0.0f, 1)),
                         titan::Error);
-}
-
-TITAN_TEST(AdamW, CudaTensorThrowsM2Message) {
-    TITAN_SKIP_IF_NO_CUDA();
-    Tensor p = Tensor::zeros({2}, Device::CUDA);
-    const Tensor g = Tensor::zeros({2}, Device::CUDA);
-    Tensor m = Tensor::zeros({2}, Device::CUDA);
-    Tensor v = Tensor::zeros({2}, Device::CUDA);
-    try {
-        ops::adamw_update(p, g, m, v, hyper(0.0f, 1));
-        TITAN_EXPECT(false);
-    } catch (const titan::Error& e) {
-        TITAN_EXPECT(std::string(e.what()).find(
-                         "ops::adamw_update: CUDA implementation arrives in "
-                         "M2") != std::string::npos);
-    }
 }

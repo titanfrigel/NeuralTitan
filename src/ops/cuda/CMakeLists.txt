@@ -11,6 +11,7 @@ add_library(titan_ops_cuda STATIC
   layout.cu
   embedding.cu
   cross_entropy.cu
+  adamw.cu
   matmul.cu
   cublas_handle.cu)
 

@@ -34,20 +34,6 @@ inline Backend route(const char* op,
     return first == Device::CPU ? Backend::cpu : Backend::cuda;
 }
 
-// Throws exactly "ops::<op>: CUDA implementation arrives in M2" when any
-// tensor is not on the CPU. Used by the op families whose CUDA kernels are
-// not written yet; each family switches to route() when they are.
-inline void require_cpu(const char* op,
-                        std::initializer_list<const Tensor*> tensors) {
-    for (const Tensor* t : tensors) {
-        if (t->device() != Device::CPU) {
-            throw_error(__FILE__, __LINE__,
-                        std::string("ops::") + op +
-                            ": CUDA implementation arrives in M2");
-        }
-    }
-}
-
 // Throws naming the op and both shapes unless the shapes are equal.
 inline void require_same_shape(const char* op, const Tensor& a,
                                const Tensor& b) {
