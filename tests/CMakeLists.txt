@@ -47,12 +47,14 @@ target_sources(titan_tests PRIVATE
   nn/embedding_module_test.cpp
   nn/attention_test.cpp
   nn/block_test.cpp
+  nn/module_parity_test.cpp
   optim/optim_test.cpp
   io/json_test.cpp
   io/token_file_test.cpp
   tokenizer/char_tokenizer_test.cpp
   model/config_test.cpp
   model/model_test.cpp
+  model/model_cuda_test.cpp
   runtime/data_loader_test.cpp
   runtime/trainer_test.cpp
   runtime/sampler_test.cpp

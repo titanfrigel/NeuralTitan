@@ -5,6 +5,7 @@
 #include <span>
 #include <vector>
 
+#include "core/device.hpp"
 #include "core/rng.hpp"
 #include "core/tensor.hpp"
 #include "model/config.hpp"
@@ -47,11 +48,24 @@ public:
     // Accumulates every parameter gradient from dL/dlogits (B, T, vocab).
     void backward(const Tensor& dlogits);
 
+    // Moves every parameter's value and gradient to `device`, in place: each
+    // Parameter object stays where it is and only its tensors are replaced.
+    // The tied head refers to the embedding Parameter, so after the move it
+    // still shares one storage with embed_tokens.weight. A no-op for tensors
+    // already on `device`. Throws titan::Error for Device::CUDA without a GPU.
+    // Optimizer state is created on the parameters' device, so construct the
+    // optimizer after the move. See docs/math/model.md.
+    void to(Device device);
+    // The device of the parameters (all of them share one, see to()).
+    Device device() const;
+
     // Every parameter exactly once, in forward order; a tied weight appears
     // once, as embed_tokens.weight.
     std::vector<nn::Parameter*> parameters();
     std::int64_t num_parameters();
     const ModelConfig& config() const { return config_; }
+    // The LM head's weight: embed_tokens.weight itself when tied.
+    const nn::Parameter& head_weight() const { return lm_head_->weight(); }
 
 private:
     ModelConfig config_;

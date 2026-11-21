@@ -23,6 +23,7 @@ public:
     void parameters(std::vector<Parameter*>& out) { out.push_back(&weight_); }
 
     Parameter& weight() { return weight_; }
+    const Parameter& weight() const { return weight_; }
 
 private:
     std::string name_;

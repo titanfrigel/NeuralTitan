@@ -4,6 +4,7 @@
 #include <ostream>
 #include <vector>
 
+#include "core/device.hpp"
 #include "io/json.hpp"
 #include "model/model.hpp"
 #include "optim/adamw.hpp"
@@ -27,6 +28,9 @@ struct TrainConfig {
     // Share of the corpus held out for validation; used by the caller that
     // splits the tokens, not by Trainer itself.
     float val_fraction = 0.1f;
+    // Where the model trains. Set by the caller, not read from the config
+    // file; the Trainer moves the model there before the first step.
+    Device device = Device::CPU;
 };
 
 // Parses and validates the "train" section. Required: batch, seq, steps, lr,
@@ -54,7 +58,10 @@ struct TrainResult {
 // and validation loss. Steps are numbered from 1 in all output.
 class Trainer {
 public:
-    // The model must outlive the trainer and be initialised. Throws
+    // The model must outlive the trainer and be initialised (on the CPU, so
+    // that one seed gives the same weights on every device). The constructor
+    // moves it to config.device, then creates the optimizer state there; the
+    // model stays on that device afterwards. Throws
     // titan::Error unless seq <= model.config().context_length and each token
     // stream holds at least seq + 2 tokens. The validation loader is seeded
     // with seed + 1.

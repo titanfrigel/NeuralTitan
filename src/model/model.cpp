@@ -139,6 +139,17 @@ void Model::backward(const Tensor& dlogits) {
     embed_tokens_.backward(dx);
 }
 
+void Model::to(Device device) {
+    // parameters() lists a tied weight once, so it moves once and the head's
+    // pointer to that Parameter sees the moved tensors.
+    for (nn::Parameter* p : parameters()) {
+        p->value = p->value.to(device);
+        p->grad = p->grad.to(device);
+    }
+}
+
+Device Model::device() const { return embed_tokens_.weight().value.device(); }
+
 std::vector<nn::Parameter*> Model::parameters() {
     std::vector<nn::Parameter*> out;
     embed_tokens_.parameters(out);

@@ -56,3 +56,31 @@ The head adds the first term into `embed_tokens.weight`'s `Parameter::grad` in s
 - `forward` and `backward` are steps 1-4 of each section above; `init` follows the initialization list, recognizing the residual projections by name.
 - Loss: `nn::CrossEntropyLoss` in `src/nn/loss.hpp` produces `dlogits` for `backward`. The optimizer is not part of the model layer.
 - Tests: `tests/model/model_test.cpp` checks the parameter count above, that a tied table is listed once and an untied head adds `V·dim`, the init standard deviations for Llama-style and GPT-style blocks (including `proj` scaling and zero biases), a finite-difference gradient check of the loss with respect to `embed_tokens.weight` (both tied uses), `blocks.0.attn.q_proj.weight` and `blocks.0.mlp.down_proj.weight`, that AdamW overfits one fixed batch to a loss below 0.05 within 300 steps (NFR-3), the sequence-length checks and the rejection of unknown variant strings.
+
+## Device
+
+M2 runs the same model on the GPU. Nothing in the math changes; this section records where the parameters live and where data crosses between the host and the device.
+
+### Initialize on the CPU, then move
+
+`Model::init` draws every weight on the CPU (`Rng` and `nn::init` are CPU-only by design), and `Model::to(Device::CUDA)` then copies each parameter to the GPU. One seed therefore gives bit-identical initial weights on both devices, and a CPU run and a CUDA run start from the same point.
+
+`Model::to(device)` walks `parameters()` and replaces each `Parameter`'s `value` and `grad` in place (`p->value = p->value.to(device)`, the same for `grad`). The `Parameter` objects themselves never move. `Model::device()` reports the device of the parameters, which all share one.
+
+The optimizer creates its moments `m` and `v` on the device of the parameters it is given, so it must be constructed after the move. `runtime::Trainer` does this: its constructor moves the model to `TrainConfig::device` (set by the caller, not read from the config file) and only then builds `optim::AdamW` from the moved parameters.
+
+### Tied weights survive the move
+
+With tied embeddings the head holds a pointer to the `embed_tokens.weight` `Parameter`, not a copy of its tensor. `parameters()` lists that `Parameter` once, so `to` moves it once, and the head reads the moved tensors through its pointer. After the move the head's weight and `embed_tokens.weight` are still one storage, and both backward contributions (the lookup's scatter-add and the head's `dyᵀ·x`) add into the one CUDA gradient. Had the head kept its own tensor, it would stay behind on the CPU, or become a second copy that trains separately, and training would silently differ from the CPU. `Model.ToCudaKeepsTiedWeights` pins this: the head's value and gradient share storage with `embed_tokens.weight` after the move, after a training step and after an optimizer step, and the shared gradient matches the CPU twin's.
+
+### Host-device copies in a training step
+
+Parameters, activations, gradients and optimizer state stay on the GPU for the whole run. The data loader produces token ids on the host, and the scalars the trainer prints or tests come back to the host. Per micro-batch and step that is:
+
+- **Id uploads.** `ops::embedding` uploads the `B·T` input ids. `ops::embedding_backward` groups the ids on the host into CSR form (unique ids, offsets, positions) and uploads those three arrays. `ops::cross_entropy` uploads the `B·T` targets. The ids are range-checked on the host before any upload, because kernels do not validate.
+- **The loss scalar.** `ops::cross_entropy` copies the summed loss (one `double`) back to the host and returns it as a `float`; `Trainer::evaluate` does the same for each validation batch.
+- **Grad-norm scalars.** `optim::clip_grad_norm` calls `ops::sum_squares` once per parameter, and each call copies one `double` back. The host adds them, takes the square root and, when clipping, launches `scale_` on every gradient with the factor.
+
+Each of these copies is synchronous on the default stream, so it also waits for the preceding kernels. Sampling (`runtime::generate_naive`) reads the logits with `Tensor::to_vector()`, which copies from either device.
+
+Tests: `tests/model/model_cuda_test.cpp` checks the tie after the move, the CPU-vs-CUDA parity of the logits, the loss and every parameter gradient for a Llama-style tied model and a GPT-style untied one, and that AdamW overfits one batch on the GPU within the 300-step budget of `Model.OverfitsSingleBatch`. `tests/nn/module_parity_test.cpp` compares `y`, `dx` and every parameter gradient of each module on the two devices. `Trainer.CudaSameSeedIsBitReproducible` in `tests/runtime/trainer_test.cpp` runs the trainer twice on the GPU and expects bit-identical results.
