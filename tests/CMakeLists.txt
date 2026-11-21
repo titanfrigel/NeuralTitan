@@ -163,6 +163,37 @@ add_cli_failure(cli_train_bad_config "n_kv_heads"
 add_cli_failure(cli_train_short_corpus "too few for a training split"
   "train;--config;${CLI_FIXTURES}/tiny-config.json;--data;${CLI_FIXTURES}/short_corpus.txt;--out;${CLI_OUT}/short;--device;cpu")
 
+# Usage errors exit with code 2 and print the usage text.
+function(add_cli_usage name)
+  add_test(NAME ${name}
+    COMMAND ${CMAKE_COMMAND}
+      -DEXE=$<TARGET_FILE:titan>
+      "-DARGS=${ARGN}"
+      -DEXPECT_CODE=2
+      "-DPATTERN=usage: titan"
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_failure.cmake)
+endfunction()
+
+set(CLI_TRAIN_ARGS "train;--config;${CLI_FIXTURES}/tiny-config.json;--data;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/usage")
+add_cli_usage(cli_usage_bad_device "${CLI_TRAIN_ARGS};--device;gpu")
+add_cli_usage(cli_usage_bad_gemm "${CLI_TRAIN_ARGS};--device;cpu;--gemm;fast")
+add_cli_usage(cli_usage_bench_bare "bench")
+add_cli_usage(cli_usage_bench_unknown "bench;conv")
+add_cli_usage(cli_usage_sizes_zero "bench;matmul;--sizes;0")
+add_cli_usage(cli_usage_sizes_empty_segment "bench;matmul;--sizes;256,,512")
+add_cli_usage(cli_usage_sizes_not_a_number "bench;matmul;--sizes;abc")
+add_cli_usage(cli_usage_sizes_trailing_comma "bench;matmul;--sizes;256,")
+add_cli_usage(cli_usage_repeat_zero "bench;matmul;--repeat;0")
+
+# With every CUDA device hidden, --device cuda must fail before writing --out.
+add_test(NAME cli_train_cuda_no_gpu
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    -DCONFIG=${CLI_FIXTURES}/tiny-config.json
+    -DDATA=${CLI_FIXTURES}/tiny_corpus.txt
+    -DOUT_DIR=${CLI_OUT}/no_gpu
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_no_gpu_failure.cmake)
+
 # CUDA CLI tests. They skip when the GPU is missing, which the commands report
 # as "no CUDA device available".
 add_test(NAME cli_train_cuda_smoke

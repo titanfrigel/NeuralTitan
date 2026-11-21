@@ -2,8 +2,10 @@
 // tiled), and the GEMM backend switch.
 
 #include <cstdint>
+#include <string>
 #include <vector>
 
+#include "core/error.hpp"
 #include "core/tensor.hpp"
 #include "harness/test.hpp"
 #include "ops/matmul.hpp"
@@ -159,4 +161,29 @@ TITAN_TEST(MatmulParity, BackendsAgree) {
     const GemmBackendGuard guard(ops::GemmBackend::tiled);
     const Tensor tiled = ops::matmul(a, b, false, true);
     TITAN_EXPECT_PARITY(reference, tiled, kMatmulAtol, kMatmulRtol);
+}
+
+TITAN_TEST(MatmulParity, MixedDevicesThrow) {
+    TITAN_REQUIRE_CUDA();
+    const Tensor cpu = Tensor::zeros({2, 2}, Device::CPU);
+    const Tensor gpu = Tensor::zeros({2, 2}, Device::CUDA);
+    Tensor out_cpu = Tensor::zeros({2, 2}, Device::CPU);
+
+    // The devices are named in argument order: out is not what differs here.
+    try {
+        ops::matmul_acc(out_cpu, gpu, gpu, false, false);
+        TITAN_EXPECT(false);
+    } catch (const titan::Error& e) {
+        TITAN_EXPECT(std::string(e.what()).find(
+                         "ops::matmul_acc: tensors are on different devices "
+                         "(cpu vs cuda)") != std::string::npos);
+    }
+    try {
+        ops::matmul(cpu, gpu);
+        TITAN_EXPECT(false);
+    } catch (const titan::Error& e) {
+        TITAN_EXPECT(std::string(e.what()).find(
+                         "tensors are on different devices (cpu vs cuda)") !=
+                     std::string::npos);
+    }
 }
