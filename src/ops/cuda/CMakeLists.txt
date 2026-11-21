@@ -10,6 +10,7 @@ add_library(titan_ops_cuda STATIC
   rope.cu
   layout.cu
   embedding.cu
+  cross_entropy.cu
   matmul.cu
   cublas_handle.cu)
 

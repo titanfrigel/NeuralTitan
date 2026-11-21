@@ -3,13 +3,14 @@
 #include <string>
 
 #include "ops/cpu/cross_entropy.hpp"
+#include "ops/cuda/cross_entropy.hpp"
 #include "ops/detail.hpp"
 
 namespace titan::ops {
 
 float cross_entropy(const Tensor& logits, std::span<const std::int32_t> targets,
                     Tensor* dlogits_out) {
-    detail::require_cpu("cross_entropy", {&logits});
+    const detail::Backend backend = detail::route("cross_entropy", {&logits});
     TITAN_CHECK(logits.rank() == 2,
                 "ops::cross_entropy: logits must have rank 2 (N, V), got " +
                     to_string(logits.shape()));
@@ -23,7 +24,9 @@ float cross_entropy(const Tensor& logits, std::span<const std::int32_t> targets,
                         " at index " + std::to_string(i) +
                         " is out of range [0, " + std::to_string(vocab) + ")");
     }
-    return cpu::cross_entropy(logits, targets, dlogits_out);
+    return backend == detail::Backend::cuda
+               ? cuda::cross_entropy(logits, targets, dlogits_out)
+               : cpu::cross_entropy(logits, targets, dlogits_out);
 }
 
 }  // namespace titan::ops

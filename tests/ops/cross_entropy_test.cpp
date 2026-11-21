@@ -6,7 +6,6 @@
 #include "core/error.hpp"
 #include "core/rng.hpp"
 #include "core/tensor.hpp"
-#include "harness/cuda.hpp"
 #include "harness/test.hpp"
 #include "ops/cross_entropy.hpp"
 #include "support/gradcheck.hpp"
@@ -95,19 +94,4 @@ TITAN_TEST(CrossEntropy, InvalidArgumentsThrow) {
     TITAN_EXPECT_THROWS(
         ops::cross_entropy(Tensor::zeros({5}, Device::CPU), one, nullptr),
         titan::Error);
-}
-
-TITAN_TEST(CrossEntropy, CudaTensorThrowsM2Message) {
-    TITAN_SKIP_IF_NO_CUDA();
-    const Tensor logits = Tensor::zeros({1, 2}, Device::CUDA);
-    const std::vector<std::int32_t> targets = {0};
-    try {
-        ops::cross_entropy(logits, targets, nullptr);
-        TITAN_EXPECT(false);
-    } catch (const titan::Error& e) {
-        TITAN_EXPECT(
-            std::string(e.what()).find(
-                "ops::cross_entropy: CUDA implementation arrives in M2") !=
-            std::string::npos);
-    }
 }
