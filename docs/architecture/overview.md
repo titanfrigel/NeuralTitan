@@ -259,7 +259,7 @@ Enforcement:
 
 | Item | Kind (risk or debt) | Mitigation or plan |
 | --- | --- | --- |
-| M6 ~8 h budget missed | Risk | GEMM uses cuBLAS by default (ADR 0007), so the remaining cost is in own non-GEMM kernels and materialized attention. Profile at M2; if over budget, shrink the M6 model or token count. Revisit at M2. M2 measurement: the M1 config (0.73 M parameters, 4.1 M tokens) trains in 29.6 s on an RTX 3070 Laptop GPU, about 145,000 tokens/s; re-estimate the M6 budget from that throughput when its model is fixed. |
+| M6 ~8 h budget missed | Risk | GEMM uses cuBLAS by default (ADR 0007), so the remaining cost is in own non-GEMM kernels and materialized attention. Profile at M2; if over budget, shrink the M6 model or token count. Revisit at M2. M2 measurement: the M1 config (0.73 M parameters, 4.1 M tokens) trains in 29.6 s on an RTX 3070 Laptop GPU, about 138,000 tokens/s; re-estimate the M6 budget from that throughput when its model is fixed. |
 | Materialized attention scores limit context length in 8 GB | Risk | Keep context ≤ 1024 in v1 training configs. Flash-style attention is listed as a later stage. Revisit if M6 needs longer context. |
 | Logits drift from the reference beyond 1e-3 (summation order) | Risk | FP32 reference, per-layer intermediate dumps from `tools/` to localize divergence, accumulation order documented. Revisit at M5. |
 | CUDA code untested in CI (no GPU runners) | Debt | CUDA tests run locally before merge, and the PR template asks for it. Revisit if a GPU runner becomes available. |
