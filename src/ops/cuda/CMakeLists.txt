@@ -5,6 +5,7 @@
 add_library(titan_ops_cuda STATIC
   elementwise.cu
   reduce.cu
+  softmax.cu
   matmul.cu
   cublas_handle.cu)
 
