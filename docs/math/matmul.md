@@ -117,3 +117,32 @@ Differences from the CPU:
 
 - The CPU sums blocks of 64 `k` in `float` and the blocks in `double`; the naive and tiled kernels sum all of `k` in one `float`, and cuBLAS in its own order. The results agree up to float rounding, which grows with `K`, so the parity tests use `atol = 1e-4, rtol = 1e-4` instead of the default `1e-5` absolute.
 - The naive and tiled kernels add in the same order and are deterministic. cuBLAS is deterministic for a given GPU and library version, not across them.
+
+### Measured throughput
+
+`titan bench matmul` times `out += a·b` for square `n × n` matrices with each GEMM backend. Per size and backend it makes one untimed warm-up call, then times `--repeat` calls (default 10) with `std::chrono::steady_clock` started and stopped on `cuda_synchronize()`, because kernels run asynchronously on the default stream. It reports milliseconds per call, `2n³ / time` in GFLOP/s, and that as a percentage of the GPU's peak.
+
+The two peaks come from `cudaDeviceProp` through `core::cuda_device_info()`:
+
+- Peak FP32 throughput `= SMs × 128 × 2 × clock`. Each sm_86 SM has 128 FP32 lanes (four partitions of 32), and each lane completes one fused multiply-add, 2 FLOP, per clock. The 128 is an assumption for sm_86 only; other architectures have other lane counts. The clock is the device's reported peak (boost) clock, which a laptop GPU sustains only within its power limit, so the peak is an upper bound.
+- Peak memory bandwidth `= 2 × memory clock × bus width / 8`. GDDR memory transfers on both clock edges, and each transfer moves `bus width / 8` bytes.
+
+The ridge point is their ratio: an operation with fewer FLOP per byte than that is bandwidth-bound at best.
+
+Measured on an NVIDIA GeForce RTX 3070 Laptop GPU (compute 8.6, 40 SMs at 1560 MHz, 256-bit bus), release build, default sizes and `--repeat 10`. Peak FP32 15,974 GFLOP/s, peak bandwidth 448 GB/s, ridge point 35.7 FLOP/byte.
+
+| n | cuBLAS ms | cuBLAS GFLOP/s | cuBLAS % | naive ms | naive GFLOP/s | naive % | tiled ms | tiled GFLOP/s | tiled % |
+| ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 256 | 0.013 | 2,493 | 15.6 | 0.049 | 686 | 4.3 | 0.036 | 944 | 5.9 |
+| 512 | 0.050 | 5,374 | 33.6 | 0.330 | 814 | 5.1 | 0.220 | 1,219 | 7.6 |
+| 1024 | 0.247 | 8,686 | 54.4 | 2.881 | 746 | 4.7 | 1.680 | 1,278 | 8.0 |
+| 2048 | 1.739 | 9,879 | 61.8 | 33.457 | 514 | 3.2 | 13.936 | 1,233 | 7.7 |
+| 4096 | 16.283 | 8,441 | 52.8 | 596.492 | 230 | 1.4 | 107.747 | 1,276 | 8.0 |
+
+Reading it against the roofline:
+
+- **Naive: bound by memory traffic.** At its nominal 0.25 FLOP/byte, DRAM alone would cap it at `0.25 × 448 ≈ 112` GFLOP/s. It does better up to `n = 1024` (500 to 800 GFLOP/s) because neighbouring threads read the same row of `a`, so L1 and L2 serve most loads and the effective intensity is higher than the nominal one. As `n` grows, a column strip of `b` no longer fits in L2 and the kernel falls towards the DRAM bound: 230 GFLOP/s at `n = 4096`.
+- **Tiled: bound by memory traffic, not compute.** Its 4 FLOP/byte from global memory gives a DRAM roof of `4 × 448 ≈ 1,792` GFLOP/s, and it sustains about 1,250, 70% of that roof but only 8% of compute peak. It is flat from `n = 512` on, because every 16 × 16 tile does the same work per byte at any size. Each shared-memory value feeds one multiply-add per load, so shared-memory bandwidth and the two `__syncthreads()` per step also limit it before the FP32 lanes do.
+- **cuBLAS: bound by compute at large sizes.** A large GEMM's ideal intensity (about 341 FLOP/byte at `n = 2048`) is far above the ridge, and register tiling lets cuBLAS approach it: 62% of the nominal peak at `n = 2048`. Small sizes are bound by launch overhead and too few thread blocks to fill 40 SMs (`n = 256` has 16% of peak). The dip at `n = 4096` is the laptop GPU lowering its clock under the sustained load, which the nominal peak does not model.
+
+cuBLAS is 8 to 15 times faster than the tiled kernel from `n = 1024` on, which is why it is the default (ADR 0007). The training run's GEMMs are small (at most 2048 × 344 × 128 for the M1 config), where the gap is smaller but launch overhead also matters.

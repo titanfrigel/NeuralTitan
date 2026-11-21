@@ -2,6 +2,9 @@
 
 #include <cuda_runtime.h>
 
+#include "core/cuda_check.hpp"
+#include "core/error.hpp"
+
 namespace titan {
 
 std::string_view to_string(Device device) {
@@ -36,8 +39,19 @@ std::optional<CudaDeviceInfo> cuda_device_info() {
         cudaGetLastError();
         return std::nullopt;
     }
-    return CudaDeviceInfo{prop.name, prop.totalGlobalMem, prop.major,
-                          prop.minor};
+    return CudaDeviceInfo{prop.name,
+                          prop.totalGlobalMem,
+                          prop.major,
+                          prop.minor,
+                          prop.multiProcessorCount,
+                          prop.clockRate,
+                          prop.memoryClockRate,
+                          prop.memoryBusWidth};
+}
+
+void cuda_synchronize() {
+    TITAN_CHECK(cuda_available(), "no CUDA device available");
+    TITAN_CUDA_CHECK(cudaDeviceSynchronize());
 }
 
 }  // namespace titan

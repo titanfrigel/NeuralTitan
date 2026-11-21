@@ -135,13 +135,14 @@ add_test(NAME cli_tokenizer_train
 
 add_test(NAME cli_train_smoke
   COMMAND $<TARGET_FILE:titan> train --config ${CLI_FIXTURES}/tiny-config.json
-    --data ${CLI_FIXTURES}/tiny_corpus.txt --out ${CLI_OUT}/smoke)
+    --data ${CLI_FIXTURES}/tiny_corpus.txt --out ${CLI_OUT}/smoke --device cpu)
 set_tests_properties(cli_train_smoke PROPERTIES
   PASS_REGULAR_EXPRESSION "final val_loss [0-9.]+")
 
 add_test(NAME cli_train_no_newline_corpus
   COMMAND $<TARGET_FILE:titan> train --config ${CLI_FIXTURES}/tiny-config.json
-    --data ${CLI_FIXTURES}/no_newline_corpus.txt --out ${CLI_OUT}/no_newline)
+    --data ${CLI_FIXTURES}/no_newline_corpus.txt --out ${CLI_OUT}/no_newline
+    --device cpu)
 set_tests_properties(cli_train_no_newline_corpus PROPERTIES
   PASS_REGULAR_EXPRESSION "final val_loss [0-9.]+")
 
@@ -155,9 +156,25 @@ function(add_cli_failure name pattern)
       -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_failure.cmake)
 endfunction()
 
-add_cli_failure(cli_train_cuda_rejected "CUDA backend arrives in M2"
-  "train;--config;${CLI_FIXTURES}/tiny-config.json;--data;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/cuda;--device;cuda")
+add_cli_failure(cli_train_gemm_needs_cuda "--gemm needs --device cuda"
+  "train;--config;${CLI_FIXTURES}/tiny-config.json;--data;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/gemm_cpu;--device;cpu;--gemm;tiled")
 add_cli_failure(cli_train_bad_config "n_kv_heads"
-  "train;--config;${CLI_FIXTURES}/bad-config.json;--data;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/bad")
+  "train;--config;${CLI_FIXTURES}/bad-config.json;--data;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/bad;--device;cpu")
 add_cli_failure(cli_train_short_corpus "too few for a training split"
-  "train;--config;${CLI_FIXTURES}/tiny-config.json;--data;${CLI_FIXTURES}/short_corpus.txt;--out;${CLI_OUT}/short")
+  "train;--config;${CLI_FIXTURES}/tiny-config.json;--data;${CLI_FIXTURES}/short_corpus.txt;--out;${CLI_OUT}/short;--device;cpu")
+
+# CUDA CLI tests. They skip when the GPU is missing, which the commands report
+# as "no CUDA device available".
+add_test(NAME cli_train_cuda_smoke
+  COMMAND $<TARGET_FILE:titan> train --config ${CLI_FIXTURES}/tiny-config.json
+    --data ${CLI_FIXTURES}/tiny_corpus.txt --out ${CLI_OUT}/cuda_smoke
+    --device cuda)
+set_tests_properties(cli_train_cuda_smoke PROPERTIES
+  PASS_REGULAR_EXPRESSION "final val_loss [0-9.]+"
+  SKIP_REGULAR_EXPRESSION "no CUDA device available")
+
+add_test(NAME cli_bench_matmul_smoke
+  COMMAND $<TARGET_FILE:titan> bench matmul --sizes 64 --repeat 1)
+set_tests_properties(cli_bench_matmul_smoke PROPERTIES
+  PASS_REGULAR_EXPRESSION "tiled"
+  SKIP_REGULAR_EXPRESSION "no CUDA device available")

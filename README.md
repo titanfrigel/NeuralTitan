@@ -52,17 +52,18 @@ scripts/check.ps1
 | `titan --version` | Prints the library version. |
 | `titan info` | Prints the CPU thread count and the CUDA device name, memory and compute capability, or that CUDA is not available. |
 | `titan tokenizer train --type char --corpus <file> --out <tok.json>` | Builds a character tokenizer from a corpus and saves it. |
-| `titan train --config <cfg.json> --data <corpus.txt> --out <dir>` | Trains a model on the CPU; see [Training a model](#training-a-model). |
+| `titan train --config <cfg.json> --data <corpus.txt> --out <dir>` | Trains a model, on the GPU when one is available; see [Training a model](#training-a-model). |
+| `titan bench matmul [--sizes 256,512,1024,2048,4096] [--repeat 10]` | Times square GEMMs with the cuBLAS, naive and tiled CUDA backends and prints each against the GPU's peak FP32 throughput; see the [matmul note](docs/math/matmul.md#measured-throughput). |
 
 ## Training a model
 
-`titan train` trains a small decoder-only model on a text file on the CPU (`--device cuda` arrives in M2):
+`titan train` trains a small decoder-only model on a text file, on the GPU when one is available and otherwise on the CPU:
 
 ```powershell
 ./build/release/apps/titan.exe train --config configs/tiny-shakespeare.json --data data/tinyshakespeare/input.txt --out runs/m1-shakespeare
 ```
 
-Options: `--tokenizer <tok.json>` (use a saved tokenizer instead of building a character tokenizer from the corpus), `--steps N` (overrides `train.steps`; `train.warmup` must stay below it) and `--device cpu|cuda`. The command writes `tokenizer.json` (when it built one), `train.bin` and `val.bin` (the encoded splits; the last `val_fraction` of the tokens validates), and `sample.txt` (500 characters sampled at temperature 0.8) to `--out`, and prints `params`, `time` and `final val_loss`. `titan tokenizer train --type char --corpus <file> --out <tok.json>` builds and saves a character tokenizer on its own.
+Options: `--tokenizer <tok.json>` (use a saved tokenizer instead of building a character tokenizer from the corpus), `--steps N` (overrides `train.steps`; `train.warmup` must stay below it) `--device cpu|cuda` (`--device cuda` without a GPU fails with `no CUDA device available`) and `--gemm cublas|naive|tiled` (the CUDA GEMM, cuBLAS by default; any other value needs `--device cuda`). The command writes `tokenizer.json` (when it built one), `train.bin` and `val.bin` (the encoded splits; the last `val_fraction` of the tokens validates), and `sample.txt` (500 characters sampled at temperature 0.8) to `--out`, and prints `device` (with the GEMM backend on CUDA), `params`, `time` and `final val_loss`. `titan tokenizer train --type char --corpus <file> --out <tok.json>` builds and saves a character tokenizer on its own.
 
 The TinyShakespeare corpus is not in the repository: download `input.txt` from [karpathy/char-rnn](https://github.com/karpathy/char-rnn/tree/master/data/tinyshakespeare) to `data/tinyshakespeare/` (git-ignored).
 
@@ -92,6 +93,32 @@ Our serves blessing sing, let him but for my young.
 ```
 
 The model has learned the play format (speaker names, short lines, punctuation) and English-like words, but not meaning.
+
+## M2 result
+
+The same config and seed on the GPU (NVIDIA GeForce RTX 3070 Laptop GPU, compute 8.6), release build, cuBLAS GEMM:
+
+```powershell
+./build/release/apps/titan.exe train --config configs/tiny-shakespeare.json --data data/tinyshakespeare/input.txt --out runs/m2-shakespeare --device cuda
+```
+
+| Measure | CPU (M1) | GPU (M2) |
+| --- | --- | --- |
+| Wall time (training) | 879 s | 29.6 s (29.7× faster; the target was at most 176 s, 5×) |
+| Throughput | about 4,800 tokens/s | about 145,000 tokens/s |
+| Final validation loss | 1.564 | 1.564 (target: below 2.0 and within 0.1 of M1) |
+
+Validation loss every 200 steps on the GPU: 2.0827, 1.9510, 1.8192, 1.7186, 1.7000, 1.6476, 1.6025, 1.5812, 1.5772, 1.5640. Every logged training and validation loss equals the CPU run's to the four printed decimals. The two devices sum in different orders, so bit-identical results are not expected, but over 2000 steps the rounding differences stay below the printed precision. The sample is therefore the same text as M1's; its first lines:
+
+```text
+Poor father to my tiger, who Edward how the most,
+That, my fedilent and scorn and and wife?
+
+BENVOLIO:
+I am cousin.
+```
+
+`titan bench matmul` puts cuBLAS at up to 62% of the GPU's peak FP32 throughput and the project's tiled kernel at 8%; the table and a roofline reading are in the [matmul note](docs/math/matmul.md#measured-throughput).
 
 ## Documentation
 

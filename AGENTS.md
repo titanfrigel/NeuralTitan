@@ -28,9 +28,10 @@ A from-scratch C++/CUDA library for building, training and running modern decode
 Run from the repository root in PowerShell:
 
 - `. ./scripts/dev-env.ps1; Enter-TitanDevEnv`: load the MSVC 14.38 environment (once per shell).
-- `cmake --preset release` then `cmake --build --preset release`: configure and build (`debug` preset also exists). The program is `build/<preset>/apps/titan.exe`; its commands are `titan --version`, `titan info`, `titan tokenizer train` and `titan train` (below).
+- `cmake --preset release` then `cmake --build --preset release`: configure and build (`debug` preset also exists). The program is `build/<preset>/apps/titan.exe`; its commands are `titan --version`, `titan info`, `titan tokenizer train`, `titan train` and `titan bench matmul` (below).
 - `build/<preset>/apps/titan.exe tokenizer train --type char --corpus <file> --out <tok.json>`: build and save a character tokenizer.
-- `build/<preset>/apps/titan.exe train --config <cfg.json> --data <corpus.txt> --out <dir> [--tokenizer <tok.json>] [--steps N] [--device cpu|cuda]`: train a model on the CPU (`cuda` arrives in M2) and write the tokenizer, token files and a sample to `<dir>`. `configs/tiny-shakespeare.json` is the M1 config.
+- `build/<preset>/apps/titan.exe train --config <cfg.json> --data <corpus.txt> --out <dir> [--tokenizer <tok.json>] [--steps N] [--device cpu|cuda] [--gemm cublas|naive|tiled]`: train a model (on the GPU when one is available, otherwise on the CPU; `--gemm` picks the CUDA GEMM and needs `--device cuda` unless it is `cublas`) and write the tokenizer, token files and a sample to `<dir>`. `configs/tiny-shakespeare.json` is the M1 and M2 config.
+- `build/<preset>/apps/titan.exe bench matmul [--sizes 256,512,1024,2048,4096] [--repeat 10]`: time square GEMMs with each CUDA GEMM backend against the GPU's peak FP32 throughput and bandwidth (needs a GPU).
 - `ctest --preset release`: run the tests of the release build (`ctest --preset debug` after building the debug preset).
 - `scripts/check.ps1 [-Preset debug|release]`: the single check: format check, build with warnings as errors, all tests including the layer check. Prints `check: OK`. CI runs it.
 - `scripts/format.ps1 [-Fix]`: check or fix formatting with clang-format 20.1.8. One-time setup: `python -m venv tools/.venv`, then `tools/.venv/Scripts/python -m pip install -r tools/requirements-dev.txt`.
@@ -44,7 +45,7 @@ Current:
 - `src/core/`: the `core` layer (errors, device, storage, caching allocator, tensor, rng, parallel_for, `utf8.*` for UTF-8 encoding and decoding).
 - `src/io/`: the `io` layer (JSON parser and writer, file helpers, token files).
 - `src/tokenizer/`: the `tokenizer` layer (character-level tokenizer).
-- `src/ops/`: the `ops` layer, with the CPU backend `ops/cpu` and the CUDA backend `ops/cuda` (`common.cuh` launch helpers; elementwise kernels so far, the other op families follow in M2).
+- `src/ops/`: the `ops` layer, with the CPU backend `ops/cpu` and the CUDA backend `ops/cuda` (`common.cuh` launch helpers and shared block reduction, `cublas_handle.cu`, and one `.cu` per op family: elementwise, reduce, matmul, softmax, norm, rope, layout, embedding, cross-entropy, adamw).
 - `src/nn/`: the `nn` layer (modules with hand-written backward passes).
 - `src/optim/`: the `optim` layer (AdamW, gradient clipping, learning-rate schedule).
 - `src/model/`: the `model` layer (model config and the decoder-only model).
