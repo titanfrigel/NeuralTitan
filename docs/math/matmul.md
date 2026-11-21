@@ -75,10 +75,12 @@ So for row-major `C (M, N) = op(A)·op(B)`:
 
 | `transpose_a` | `transpose_b` | cuBLAS `transa` (on `b`) | `ldb` | cuBLAS `transb` (on `a`) | `lda` |
 | --- | --- | --- | --- | --- | --- |
-| false | false | `N` | `N` | `N` | `K` |
-| true | false | `N` | `N` | `T` | `M` |
-| false | true | `T` | `K` | `N` | `K` |
-| true | true | `T` | `K` | `T` | `M` |
+| false | false | `CUBLAS_OP_N` | `N` | `CUBLAS_OP_N` | `K` |
+| true | false | `CUBLAS_OP_N` | `N` | `CUBLAS_OP_T` | `M` |
+| false | true | `CUBLAS_OP_T` | `K` | `CUBLAS_OP_N` | `K` |
+| true | true | `CUBLAS_OP_T` | `K` | `CUBLAS_OP_T` | `M` |
+
+In the transpose columns `CUBLAS_OP_N` means "no transpose" and `CUBLAS_OP_T` means "transpose"; in the `ldb` and `lda` columns `N`, `M` and `K` are the dimensions of the product.
 
 In every case the cuBLAS transpose of an operand equals our flag for it, and its leading dimension is the last dimension of the stored tensor.
 
@@ -111,7 +113,7 @@ A GEMM performs `2·M·N·K` floating-point operations. Its arithmetic intensity
 - Tiled, with tile size `T = 16`: per step a block loads `2·T²` floats (`8T²` bytes) and performs `2·T³` operations, an intensity of `T/4 = 4` FLOP/byte, sixteen times the naive one. Still below the ridge: each element in shared memory is reused only 16 times.
 - cuBLAS: register tiling on top of shared-memory tiling (each thread keeps a block of outputs in registers, each thread block covers a tile 64 or 128 wide), with vectorized and double-buffered loads, takes the intensity above the ridge for large products. The bound for any GEMM is reading each input and writing the output once: `2MNK / (4(MK + KN + MN))` FLOP/byte, about 85 for `512³`.
 
-Task 10 adds the measured throughput of each kernel next to the GPU's peak compute and bandwidth, from `titan bench matmul`.
+The measured throughput of each kernel next to the GPU's peak compute and bandwidth, from `titan bench matmul`, is in "Measured throughput" below.
 
 Differences from the CPU:
 
