@@ -73,6 +73,9 @@ TITAN_TEST(SoftmaxParity, Causal) {
             ops::causal_softmax(x, c.pos_offset),
             ops::causal_softmax(x.to(Device::CUDA), c.pos_offset), kParityAtol,
             kParityRtol);
+        expect_rows_sum_to_one(
+            ops::causal_softmax(x.to(Device::CUDA), c.pos_offset),
+            c.shape.back());
     }
 }
 
