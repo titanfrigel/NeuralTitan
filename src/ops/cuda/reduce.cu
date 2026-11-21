@@ -8,20 +8,6 @@ namespace titan::ops::cuda {
 
 namespace {
 
-// Sums shared[0..kBlock) in a fixed tree: at each step thread t adds the value
-// of thread t + offset, halving offset from kBlock / 2 down to 1. The order
-// depends only on kBlock, so the result is the same on every run. Every thread
-// of the block must call it; the total is valid in every thread afterwards.
-__device__ double block_sum(double* shared) {
-    for (int offset = kBlock / 2; offset > 0; offset /= 2) {
-        if (threadIdx.x < offset) {
-            shared[threadIdx.x] += shared[threadIdx.x + offset];
-        }
-        __syncthreads();
-    }
-    return shared[0];
-}
-
 // Pass 1 of sum / sum_squares. Thread t of the grid accumulates elements
 // t, t + stride, ... in double, in index order; each block then reduces its
 // 256 accumulators in the fixed tree and writes one partial.
@@ -34,9 +20,7 @@ __global__ void partial_sum_kernel(const float* x, std::int64_t n,
         const double v = x[i];
         acc += Square ? v * v : v;
     }
-    shared[threadIdx.x] = acc;
-    __syncthreads();
-    const double total = block_sum(shared);
+    const double total = block_reduce(acc, shared, SumOp());
     if (threadIdx.x == 0) partials[blockIdx.x] = total;
 }
 
@@ -46,12 +30,10 @@ __global__ void final_sum_kernel(const double* partials, std::int64_t count,
                                  double* result) {
     __shared__ double shared[kBlock];
     double acc = 0.0;
-    for (std::int64_t i = threadIdx.x; i < count; i += blockDim.x) {
+    for (std::int64_t i = threadIdx.x; i < count; i += kBlock) {
         acc += partials[i];
     }
-    shared[threadIdx.x] = acc;
-    __syncthreads();
-    const double total = block_sum(shared);
+    const double total = block_reduce(acc, shared, SumOp());
     if (threadIdx.x == 0) *result = total;
 }
 
@@ -80,19 +62,11 @@ __global__ void row_max_kernel(const float* x, std::int64_t cols, float* out) {
     __shared__ float shared[kBlock];
     const float* row = x + static_cast<std::int64_t>(blockIdx.x) * cols;
     float m = __int_as_float(0xff800000);  // -infinity
-    for (std::int64_t c = threadIdx.x; c < cols; c += blockDim.x) {
+    for (std::int64_t c = threadIdx.x; c < cols; c += kBlock) {
         if (row[c] > m) m = row[c];
     }
-    shared[threadIdx.x] = m;
-    __syncthreads();
-    for (int offset = kBlock / 2; offset > 0; offset /= 2) {
-        if (threadIdx.x < offset &&
-            shared[threadIdx.x + offset] > shared[threadIdx.x]) {
-            shared[threadIdx.x] = shared[threadIdx.x + offset];
-        }
-        __syncthreads();
-    }
-    if (threadIdx.x == 0) out[blockIdx.x] = shared[0];
+    const float row_m = block_reduce(m, shared, MaxOp());
+    if (threadIdx.x == 0) out[blockIdx.x] = row_m;
 }
 
 // One thread per column (grid-stride over columns). It adds the column's rows

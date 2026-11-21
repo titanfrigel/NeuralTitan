@@ -8,36 +8,6 @@ namespace titan::ops::cuda {
 
 namespace {
 
-// Reduces shared[0..kBlock) with a fixed tree: at each step thread t combines
-// its value with that of thread t + offset, halving offset from kBlock / 2 to
-// 1. The order depends only on kBlock, so the result is the same on every run.
-// Every thread of the block must call it; the result is valid in every thread
-// afterwards.
-template <typename Op>
-__device__ float block_reduce(float* shared, Op op) {
-    for (int offset = kBlock / 2; offset > 0; offset /= 2) {
-        if (threadIdx.x < offset) {
-            shared[threadIdx.x] =
-                op(shared[threadIdx.x], shared[threadIdx.x + offset]);
-        }
-        __syncthreads();
-    }
-    const float result = shared[0];
-    // Keep the next use of `shared` from overwriting shared[0] early.
-    __syncthreads();
-    return result;
-}
-
-struct MaxOp {
-    __device__ float operator()(float a, float b) const {
-        return a > b ? a : b;
-    }
-};
-
-struct SumOp {
-    __device__ float operator()(float a, float b) const { return a + b; }
-};
-
 // One block per row, rows on gridDim.x (a row count above 65535 would not fit
 // gridDim.y). The first `valid` entries of the row are softmaxed; the rest are
 // written as exactly 0. For plain softmax valid = cols. For causal softmax row
@@ -55,28 +25,24 @@ __global__ void softmax_kernel(const float* x, float* y, std::int64_t cols,
     const std::int64_t valid = Causal ? (r % tq) + pos_offset + 1 : cols;
 
     float m = __int_as_float(0xff800000);  // -infinity
-    for (std::int64_t j = threadIdx.x; j < valid; j += blockDim.x) {
+    for (std::int64_t j = threadIdx.x; j < valid; j += kBlock) {
         if (in[j] > m) m = in[j];
     }
-    shared[threadIdx.x] = m;
-    __syncthreads();
-    m = block_reduce(shared, MaxOp());
+    m = block_reduce(m, shared, MaxOp());
 
     float s = 0.0f;
-    for (std::int64_t j = threadIdx.x; j < valid; j += blockDim.x) {
+    for (std::int64_t j = threadIdx.x; j < valid; j += kBlock) {
         const float e = expf(in[j] - m);
         out[j] = e;
         s += e;
     }
-    shared[threadIdx.x] = s;
-    __syncthreads();
-    s = block_reduce(shared, SumOp());
+    s = block_reduce(s, shared, SumOp());
 
     const float inv = 1.0f / s;
-    for (std::int64_t j = threadIdx.x; j < valid; j += blockDim.x) {
+    for (std::int64_t j = threadIdx.x; j < valid; j += kBlock) {
         out[j] *= inv;
     }
-    for (std::int64_t j = valid + threadIdx.x; j < cols; j += blockDim.x) {
+    for (std::int64_t j = valid + threadIdx.x; j < cols; j += kBlock) {
         out[j] = 0.0f;
     }
 }
@@ -88,13 +54,11 @@ __global__ void softmax_backward_kernel(const float* y, const float* dy,
     __shared__ float shared[kBlock];
     const std::int64_t base = static_cast<std::int64_t>(blockIdx.x) * cols;
     float dot = 0.0f;
-    for (std::int64_t j = threadIdx.x; j < cols; j += blockDim.x) {
+    for (std::int64_t j = threadIdx.x; j < cols; j += kBlock) {
         dot += dy[base + j] * y[base + j];
     }
-    shared[threadIdx.x] = dot;
-    __syncthreads();
-    dot = block_reduce(shared, SumOp());
-    for (std::int64_t j = threadIdx.x; j < cols; j += blockDim.x) {
+    dot = block_reduce(dot, shared, SumOp());
+    for (std::int64_t j = threadIdx.x; j < cols; j += kBlock) {
         dx[base + j] = y[base + j] * (dy[base + j] - dot);
     }
 }

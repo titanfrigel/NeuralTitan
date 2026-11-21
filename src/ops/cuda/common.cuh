@@ -55,6 +55,44 @@ __device__ inline std::int64_t grid_stride() {
     return static_cast<std::int64_t>(gridDim.x) * blockDim.x;
 }
 
+// Reduces one value per thread over a block of kBlock threads with a fixed
+// tree: at each step thread t combines its slot with that of thread t + offset
+// (op(shared[t], shared[t + offset])), halving offset from kBlock / 2 down to
+// 1. The order depends only on kBlock, so the result is the same on every run.
+// `shared` is a __shared__ array of kBlock elements of T. Requirements:
+// blockDim.x == kBlock, and every thread of the block must call it (it
+// contains __syncthreads). The result is returned to every thread. The final
+// __syncthreads lets the caller reuse `shared` straight away.
+template <typename T, typename Op>
+__device__ T block_reduce(T value, T* shared, Op op) {
+    shared[threadIdx.x] = value;
+    __syncthreads();
+    for (int offset = kBlock / 2; offset > 0; offset /= 2) {
+        if (threadIdx.x < offset) {
+            shared[threadIdx.x] =
+                op(shared[threadIdx.x], shared[threadIdx.x + offset]);
+        }
+        __syncthreads();
+    }
+    const T result = shared[0];
+    __syncthreads();
+    return result;
+}
+
+struct MaxOp {
+    template <typename T>
+    __device__ T operator()(T a, T b) const {
+        return a > b ? a : b;
+    }
+};
+
+struct SumOp {
+    template <typename T>
+    __device__ T operator()(T a, T b) const {
+        return a + b;
+    }
+};
+
 // Scratch device memory of `count` elements of T (partial sums, flags, uploaded
 // ids) for the duration of one call. It comes from the caching allocator, so
 // repeated calls reuse blocks instead of calling the driver, and it is

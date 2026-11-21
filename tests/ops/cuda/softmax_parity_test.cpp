@@ -2,6 +2,7 @@
 // Default tolerances: the CPU sums in double and the GPU in float with a block
 // tree, which differ by about 1e-7 relative on rows this short.
 
+#include <cmath>
 #include <cstdint>
 #include <vector>
 
@@ -25,8 +26,23 @@ namespace {
 // once), and a tensor of at least 2^20 elements (1024 * 1025 = 1,049,600).
 const std::vector<Shape>& parity_shapes() {
     static const std::vector<Shape> shapes = {
-        {1}, {37, 129}, {5, 300}, {2, 3, 7}, {1024, 1025}};
+        {1}, {37, 129}, {3, 257}, {5, 300}, {2, 3, 7}, {1024, 1025}};
     return shapes;
+}
+
+// Every row of a softmax output is a probability distribution. On long rows
+// each entry is about 1e-3, so a parity tolerance of 1e-5 per entry would not
+// notice a reduction that drops one thread's partial (an error of ~0.4% of the
+// sum); the row sum, held to 1e-5, does.
+void expect_rows_sum_to_one(const Tensor& cuda_out, std::int64_t cols) {
+    const Tensor out = cuda_out.to(Device::CPU);
+    const std::int64_t rows = out.numel() / cols;
+    for (std::int64_t r = 0; r < rows; ++r) {
+        double total = 0.0;
+        for (std::int64_t j = 0; j < cols; ++j)
+            total += out.data()[r * cols + j];
+        TITAN_EXPECT(std::fabs(total - 1.0) <= 1e-5);
+    }
 }
 
 }  // namespace
@@ -37,6 +53,7 @@ TITAN_TEST(SoftmaxParity, Softmax) {
         const Tensor x = random_tensor(s, 1);
         TITAN_EXPECT_PARITY(ops::softmax(x), ops::softmax(x.to(Device::CUDA)),
                             kParityAtol, kParityRtol);
+        expect_rows_sum_to_one(ops::softmax(x.to(Device::CUDA)), s.back());
     }
 }
 
