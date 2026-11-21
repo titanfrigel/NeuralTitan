@@ -9,6 +9,7 @@ add_library(titan_ops_cuda STATIC
   norm.cu
   rope.cu
   layout.cu
+  embedding.cu
   matmul.cu
   cublas_handle.cu)
 

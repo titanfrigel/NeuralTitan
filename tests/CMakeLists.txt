@@ -38,6 +38,7 @@ target_sources(titan_tests PRIVATE
   ops/cuda/matmul_parity_test.cpp
   ops/cuda/rope_parity_test.cpp
   ops/cuda/layout_parity_test.cpp
+  ops/cuda/embedding_parity_test.cpp
   nn/linear_test.cpp
   nn/norm_module_test.cpp
   nn/mlp_test.cpp

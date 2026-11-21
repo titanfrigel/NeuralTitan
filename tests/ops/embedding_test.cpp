@@ -4,7 +4,6 @@
 
 #include "core/error.hpp"
 #include "core/tensor.hpp"
-#include "harness/cuda.hpp"
 #include "harness/test.hpp"
 #include "ops/embedding.hpp"
 
@@ -78,18 +77,4 @@ TITAN_TEST(Embedding, InvalidShapesThrow) {
     TITAN_EXPECT_THROWS(ops::embedding_backward(
                             dtable, ids, Tensor::zeros({3, 2}, Device::CPU)),
                         titan::Error);
-}
-
-TITAN_TEST(Embedding, CudaTensorThrowsM2Message) {
-    TITAN_SKIP_IF_NO_CUDA();
-    const Tensor table = Tensor::zeros({4, 2}, Device::CUDA);
-    const std::vector<std::int32_t> ids = {0};
-    try {
-        ops::embedding(table, ids, {1});
-        TITAN_EXPECT(false);
-    } catch (const titan::Error& e) {
-        TITAN_EXPECT(std::string(e.what()).find(
-                         "ops::embedding: CUDA implementation arrives in M2") !=
-                     std::string::npos);
-    }
 }

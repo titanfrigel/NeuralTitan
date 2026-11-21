@@ -7,9 +7,9 @@
 
 namespace titan::ops {
 
-// Embedding lookup over CPU tensors. A CUDA tensor throws
-// "ops::<name>: CUDA implementation arrives in M2". Every id must be in
-// [0, V); the error names the offending id and its index.
+// Embedding lookup. The ids live on the host; the tensors may be on the CPU or
+// on CUDA (all on one device). Every id must be in [0, V); the error names the
+// offending id and its index, and is raised on the host before any upload.
 
 // table is (V, D). out_shape is the layout of the ids (for example {B, T}) and
 // its element count must equal ids.size(). The result has shape
