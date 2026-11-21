@@ -36,6 +36,7 @@ target_sources(titan_tests PRIVATE
   ops/cuda/softmax_parity_test.cpp
   ops/cuda/norm_parity_test.cpp
   ops/cuda/matmul_parity_test.cpp
+  ops/cuda/rope_parity_test.cpp
   nn/linear_test.cpp
   nn/norm_module_test.cpp
   nn/mlp_test.cpp

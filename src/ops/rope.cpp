@@ -3,14 +3,17 @@
 #include <string>
 
 #include "ops/cpu/rope.hpp"
+#include "ops/cuda/rope.hpp"
 #include "ops/detail.hpp"
 
 namespace titan::ops {
 
+using detail::Backend;
+
 namespace {
 
-void check_args(const char* op, const Tensor& x, std::int64_t pos_offset) {
-    detail::require_cpu(op, {&x});
+Backend check_args(const char* op, const Tensor& x, std::int64_t pos_offset) {
+    const Backend backend = detail::route(op, {&x});
     TITAN_CHECK(x.rank() == 4,
                 std::string("ops::") + op +
                     ": input must have rank 4 (B, H, T, hd), got " +
@@ -22,18 +25,21 @@ void check_args(const char* op, const Tensor& x, std::int64_t pos_offset) {
     TITAN_CHECK(pos_offset >= 0, std::string("ops::") + op +
                                      ": pos_offset must be >= 0, got " +
                                      std::to_string(pos_offset));
+    return backend;
 }
 
 }  // namespace
 
 Tensor rope(const Tensor& x, std::int64_t pos_offset, float theta) {
-    check_args("rope", x, pos_offset);
-    return cpu::rope(x, pos_offset, theta);
+    const Backend backend = check_args("rope", x, pos_offset);
+    return backend == Backend::cuda ? cuda::rope(x, pos_offset, theta)
+                                    : cpu::rope(x, pos_offset, theta);
 }
 
 Tensor rope_backward(const Tensor& dy, std::int64_t pos_offset, float theta) {
-    check_args("rope_backward", dy, pos_offset);
-    return cpu::rope_backward(dy, pos_offset, theta);
+    const Backend backend = check_args("rope_backward", dy, pos_offset);
+    return backend == Backend::cuda ? cuda::rope_backward(dy, pos_offset, theta)
+                                    : cpu::rope_backward(dy, pos_offset, theta);
 }
 
 }  // namespace titan::ops

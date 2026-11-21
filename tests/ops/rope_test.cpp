@@ -6,7 +6,6 @@
 #include "core/error.hpp"
 #include "core/rng.hpp"
 #include "core/tensor.hpp"
-#include "harness/cuda.hpp"
 #include "harness/test.hpp"
 #include "ops/rope.hpp"
 #include "support/gradcheck.hpp"
@@ -146,17 +145,4 @@ TITAN_TEST(Rope, InvalidArgumentsThrow) {
     TITAN_EXPECT_THROWS(ops::rope(m, 0, kTheta), titan::Error);
     TITAN_EXPECT_THROWS(ops::rope(x, -1, kTheta), titan::Error);
     TITAN_EXPECT_THROWS(ops::rope_backward(x, -1, kTheta), titan::Error);
-}
-
-TITAN_TEST(Rope, CudaTensorThrowsM2Message) {
-    TITAN_SKIP_IF_NO_CUDA();
-    const Tensor x = Tensor::zeros({1, 1, 2, 4}, Device::CUDA);
-    try {
-        ops::rope(x, 0, kTheta);
-        TITAN_EXPECT(false);
-    } catch (const titan::Error& e) {
-        TITAN_EXPECT(std::string(e.what()).find(
-                         "ops::rope: CUDA implementation arrives in M2") !=
-                     std::string::npos);
-    }
 }
