@@ -8,6 +8,7 @@ add_library(titan_ops_cuda STATIC
   softmax.cu
   norm.cu
   rope.cu
+  layout.cu
   matmul.cu
   cublas_handle.cu)
 

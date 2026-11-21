@@ -89,6 +89,16 @@ The layer stores `P`, a full `(B, H, T, T)` tensor, for the backward pass. That 
 ## Mapping to code
 
 - `nn::Attention`, `nn::PositionEncoding`: `src/nn/attention.hpp`, `src/nn/attention.cpp`. `forward` follows steps 1-8 with the step numbers in comments and caches `Q`, `K_r` (after RoPE), `V_r`, `P` and `p₀`; `backward` reverses them. The helpers `split_heads` and `merge_heads` do the reshape and swap of steps 2 and 7.
-- Layout ops, public interface and checks: `src/ops/layout.hpp`, `src/ops/layout.cpp`. A CUDA tensor fails with `ops::swap_dims_1_2: CUDA implementation arrives in M2` (likewise for the other two). Reference implementation: `src/ops/cpu/layout.cpp`.
+- Layout ops, public interface and checks: `src/ops/layout.hpp`, `src/ops/layout.cpp`. The dispatch routes by the tensor's device to the CPU or the CUDA implementation. Reference implementation: `src/ops/cpu/layout.cpp`; CUDA kernels: `src/ops/cuda/layout.cu`.
 - Scores and values use `ops::matmul` with its transpose flags, the scale `ops::scale_`, the mask and normalization `ops::causal_softmax` and `ops::softmax_backward`, and the rotation `ops::rope` and `ops::rope_backward`.
-- Tests: `tests/ops/layout_test.cpp` covers the layout ops (values, the inverse property of the swap, group sums, gradient checks, error cases). `tests/nn/attention_test.cpp` checks causality, the output of a one-head case with identity projections against an explicit `softmax(q kᵀ/√2) v`, finite-difference gradients of the input and all four weights for MHA with RoPE, GQA with RoPE and GQA without position encoding, and the head-configuration errors.
+- Tests: `tests/ops/cuda/layout_parity_test.cpp` compares the three layout ops with the CPU for `n_rep` 1 and 3. `tests/ops/layout_test.cpp` covers the layout ops (values, the inverse property of the swap, group sums, gradient checks, error cases). `tests/nn/attention_test.cpp` checks causality, the output of a one-head case with identity projections against an explicit `softmax(q kᵀ/√2) v`, finite-difference gradients of the input and all four weights for MHA with RoPE, GQA with RoPE and GQA without position encoding, and the head-configuration errors.
+
+## CUDA implementation
+
+The layout kernels are in `src/ops/cuda/layout.cu`. None uses an atomic, and the only sum has a fixed order, so results are deterministic. See [CUDA execution](cuda-execution.md) for the grid and block vocabulary. Every kernel is one thread per output element in a grid-stride loop; the thread decodes its output index with `/` and `%` and reads the input element or elements it maps to.
+
+- `swap_dims_1_2`: output index `o` is decoded as `(a, c, b, d)` in row-major order of the `(A, C, B, D)` output, and the thread copies `x[a, b, c, d]`.
+- `repeat_kv`: `o` is split into a flat `(batch, output head)` index and an offset inside the `(T, hd)` head. Output head `h` reads KV head `⌊h / n_rep⌋` of the same batch entry.
+- `repeat_kv_backward`: one thread per element of `dx`. It adds the `n_rep` copies `dy[b, g·n_rep + r]` for `r = 0, 1, …, n_rep − 1`, in that order, so no atomics are needed. The sum is kept in `double` and rounded once, as on the CPU, so the CPU and the GPU agree to the last `float` bit for any `n_rep`.
+
+Differences from the CPU: the copies are exact and the backward sum has the CPU's order and precision, so the results are identical. Only the memory access pattern differs, which affects speed, not values.
