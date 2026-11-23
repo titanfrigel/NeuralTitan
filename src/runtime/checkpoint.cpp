@@ -1,6 +1,7 @@
 #include "runtime/checkpoint.hpp"
 
 #include <cstddef>
+#include <limits>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -37,6 +38,9 @@ io::JsonValue state_to_json(const TrainerState& s) {
           io::JsonValue::number(static_cast<double>(s.train_tokens)));
     o.set("val_tokens",
           io::JsonValue::number(static_cast<double>(s.val_tokens)));
+    o.set("train_crc32",
+          io::JsonValue::number(static_cast<double>(s.train_crc32)));
+    o.set("val_crc32", io::JsonValue::number(static_cast<double>(s.val_crc32)));
     return o;
 }
 
@@ -57,11 +61,21 @@ std::string rng_state(const io::JsonFields& f, std::string_view key) {
     return v.as_string();
 }
 
+// A CRC-32 value: an integer in [0, 2^32).
+std::uint32_t crc32_field(const io::JsonFields& f, std::string_view key) {
+    const std::int64_t v = f.integer(f.require(key), key, 0);
+    if (v > std::numeric_limits<std::uint32_t>::max()) {
+        f.fail(f.path_of(key), "must be below 2^32, got " + std::to_string(v));
+    }
+    return static_cast<std::uint32_t>(v);
+}
+
 TrainerState state_from_json(const io::JsonValue& value,
                              const std::string& context) {
-    const io::JsonFields f(value, context, "meta.state",
-                           {"step", "optimizer_steps", "train_rng", "val_rng",
-                            "train_tokens", "val_tokens"});
+    const io::JsonFields f(
+        value, context, "meta.state",
+        {"step", "optimizer_steps", "train_rng", "val_rng", "train_tokens",
+         "val_tokens", "train_crc32", "val_crc32"});
     TrainerState s;
     s.step = f.integer(f.require("step"), "step", 0);
     s.optimizer.steps =
@@ -70,6 +84,8 @@ TrainerState state_from_json(const io::JsonValue& value,
     s.val_rng = rng_state(f, "val_rng");
     s.train_tokens = f.integer(f.require("train_tokens"), "train_tokens", 0);
     s.val_tokens = f.integer(f.require("val_tokens"), "val_tokens", 0);
+    s.train_crc32 = crc32_field(f, "train_crc32");
+    s.val_crc32 = crc32_field(f, "val_crc32");
     return s;
 }
 

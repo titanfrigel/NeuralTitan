@@ -217,9 +217,12 @@ tokenizer::CharTokenizer checkpoint_tokenizer(const fs::path& path,
 }
 
 // A token file of a run directory, with every id checked against the
-// vocabulary (the model does not validate its inputs).
+// vocabulary (the model does not validate its inputs), and the stream checked
+// against the length and CRC-32 the checkpoint saved for it.
 std::vector<std::int32_t> read_run_tokens(const fs::path& path,
-                                          std::int64_t vocab_size) {
+                                          std::int64_t vocab_size,
+                                          std::int64_t saved_count,
+                                          std::uint32_t saved_crc32) {
     std::vector<std::int32_t> ids = io::read_token_file(path);
     for (std::size_t i = 0; i < ids.size(); ++i) {
         TITAN_CHECK(ids[i] >= 0 && ids[i] < vocab_size,
@@ -227,6 +230,14 @@ std::vector<std::int32_t> read_run_tokens(const fs::path& path,
                         std::to_string(ids[i]) + ", outside [0, " +
                         std::to_string(vocab_size) + ")");
     }
+    const auto count = static_cast<std::int64_t>(ids.size());
+    const std::uint32_t crc = runtime::token_crc32(ids);
+    TITAN_CHECK(count == saved_count && crc == saved_crc32,
+                path.string() + ": the token file changed since the " +
+                    "checkpoint (" + std::to_string(count) +
+                    " tokens with crc32 " + std::to_string(crc) +
+                    ", the checkpoint has " + std::to_string(saved_count) +
+                    " tokens with crc32 " + std::to_string(saved_crc32) + ")");
     return ids;
 }
 
@@ -392,9 +403,11 @@ void train_resume(const Flags& flags, Device device,
                     std::to_string(header.state.step) + " of " +
                     std::to_string(tc.steps));
     const std::vector<std::int32_t> train_tokens =
-        read_run_tokens(out / "train.bin", tok.vocab_size());
+        read_run_tokens(out / "train.bin", tok.vocab_size(),
+                        header.state.train_tokens, header.state.train_crc32);
     const std::vector<std::int32_t> val_tokens =
-        read_run_tokens(out / "val.bin", tok.vocab_size());
+        read_run_tokens(out / "val.bin", tok.vocab_size(),
+                        header.state.val_tokens, header.state.val_crc32);
 
     model::Model model(header.model);
     runtime::Checkpoint ckpt = runtime::load_checkpoint(path, &model);

@@ -216,7 +216,7 @@ meta     {"vocab_size": V,
           "model": <model_config_to_json>, "train": <train_config_to_json>,
           "tokenizer": <the tokenizer's JSON>,
           "state": {"step", "optimizer_steps", "train_rng", "val_rng",
-                    "train_tokens", "val_tokens"}}
+                    "train_tokens", "val_tokens", "train_crc32", "val_crc32"}}
 tensors  every parameter under its name, in the model's parameter order,
          then "optim.m.<name>" for each, then "optim.v.<name>" for each
 ```
@@ -224,6 +224,7 @@ tensors  every parameter under its name, in the model's parameter order,
 - The meta is validated like a config file: unknown or missing keys, wrong types and malformed generator states fail with the file and the field path, and the `model` and `train` sections go through `parse_model_config` and `parse_train_config`.
 - `load_checkpoint(path, nullptr)` reads only the header, so a caller can build the model from the saved config first. With a model, it requires exactly the model's parameter and moment names with matching shapes, checks them all before it changes the model, and copies the parameters onto the model's current device.
 - A resumed `Trainer` takes the saved `TrainerState`: it moves the model to the training device, builds AdamW there and loads the moments into it, restores both loaders' generators and continues at the step after the saved one, so the result equals the uninterrupted run bit for bit. It refuses token streams whose lengths differ from the saved counts.
+- The state also carries `train_crc32` and `val_crc32`, the CRC-32 of each token stream's int32 bytes (`runtime::token_crc32`). A resumed `Trainer` refuses streams of the saved length whose checksum differs, so re-tokenized files of the same length cannot pass silently. `titan train --resume` checks both files first and names the one that changed.
 
 The `titan train` command wires this in (M3):
 

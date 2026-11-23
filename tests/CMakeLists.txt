@@ -320,3 +320,29 @@ add_cli_quiet_failure(cli_train_resume_finished
   "train;--resume;${CLI_OUT}/ckpt;--device;cpu")
 set_tests_properties(cli_train_resume_finished PROPERTIES
   FIXTURES_REQUIRED cli_checkpoint)
+
+# Resume against edited token files. edit_token_file writes a well-formed
+# token file with one token replaced. The run stops at step 3 so that the
+# resume reaches the token checks.
+add_executable(edit_token_file tools/edit_token_file.cpp)
+target_link_libraries(edit_token_file PRIVATE titan_io titan_core)
+
+function(add_cli_resume_failure name file index id pattern)
+  add_test(NAME ${name}
+    COMMAND ${CMAKE_COMMAND}
+      -DEXE=$<TARGET_FILE:titan>
+      -DTOOL=$<TARGET_FILE:edit_token_file>
+      -DCONFIG=${CLI_FIXTURES}/checkpoint-config.json
+      -DDATA=${CLI_FIXTURES}/tiny_corpus.txt
+      -DOUT_DIR=${CLI_OUT}/${name}
+      -DSTOP_AT=3
+      -DFILE=${file}
+      -DINDEX=${index}
+      -DID=${id}
+      "-DPATTERN=${pattern}"
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_resume_failure.cmake)
+endfunction()
+
+# Token 0 of the corpus is 'F'; id 0 is '\n', in the vocabulary.
+add_cli_resume_failure(cli_train_resume_changed_tokens train.bin 0 0
+  "error: .*train[.]bin: the token file changed since the checkpoint")

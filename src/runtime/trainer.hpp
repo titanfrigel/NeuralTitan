@@ -4,6 +4,7 @@
 #include <functional>
 #include <optional>
 #include <ostream>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -79,7 +80,13 @@ struct TrainerState {
     // Rng::save_state of the training and the validation loader.
     std::string train_rng, val_rng;
     std::int64_t train_tokens = 0, val_tokens = 0;
+    // token_crc32 of the training and the validation stream, so a resume
+    // also detects token files that changed without changing length.
+    std::uint32_t train_crc32 = 0, val_crc32 = 0;
 };
+
+// CRC-32 (io::crc32) of a token stream's little-endian int32 bytes.
+std::uint32_t token_crc32(std::span<const std::int32_t> ids);
 
 // Trains a model on a token stream with AdamW, gradient accumulation, global
 // gradient-norm clipping and the warmup + cosine schedule, logging progress
@@ -106,6 +113,8 @@ public:
     // starts at step resume->step + 1. Throws titan::Error
     // "resume: train tokens changed (checkpoint N, now M)" (or "val tokens")
     // when a token stream's length differs from the saved count, and for a
+    // "resume: train tokens changed (checkpoint crc32 X, now Y)" (or "val")
+    // when a stream has the saved length but other content, and for a
     // step outside [0, steps], an optimizer step count different from the
     // step, or a malformed generator state. Without a state, it is the
     // constructor above.
@@ -153,6 +162,7 @@ private:
     model::Model& model_;
     TrainConfig config_;
     std::int64_t train_tokens_, val_tokens_;
+    std::uint32_t train_crc32_, val_crc32_;
     DataLoader train_loader_;
     DataLoader val_loader_;
     std::ostream& log_;

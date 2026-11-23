@@ -20,7 +20,7 @@ namespace titan::runtime {
 //    "train": train_config_to_json(train),
 //    "tokenizer": <the tokenizer's JSON>,
 //    "state": {"step", "optimizer_steps", "train_rng", "val_rng",
-//              "train_tokens", "val_tokens"}}
+//              "train_tokens", "val_tokens", "train_crc32", "val_crc32"}}
 // and its tensors are every parameter under its name, in the model's
 // parameter order, then "optim.m.<name>" and "optim.v.<name>" for each.
 struct Checkpoint {

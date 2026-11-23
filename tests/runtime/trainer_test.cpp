@@ -408,6 +408,27 @@ TITAN_TEST(Trainer, ResumeRejectsChangedData) {
                           "resume: val tokens changed (checkpoint 100, "
                           "now 99)"));
     TITAN_EXPECT(resume_error(400, 100).empty());
+
+    // Same lengths, different content: only the checksums tell.
+    std::vector<std::int32_t> edited = repeating_tokens(400);
+    edited[17] = (edited[17] + 1) % 5;
+    const auto content_error = [&](std::vector<std::int32_t> train,
+                                   std::vector<std::int32_t> val) {
+        try {
+            Trainer trainer(m, c, std::move(train), std::move(val), log, state);
+        } catch (const titan::Error& e) {
+            return std::string(e.what());
+        }
+        return std::string();
+    };
+    TITAN_EXPECT(contains(content_error(edited, repeating_tokens(100)),
+                          "resume: train tokens changed (checkpoint crc32 "));
+    std::vector<std::int32_t> edited_val = repeating_tokens(100);
+    edited_val[0] = (edited_val[0] + 1) % 5;
+    TITAN_EXPECT(contains(content_error(repeating_tokens(400), edited_val),
+                          "resume: val tokens changed (checkpoint crc32 "));
+    TITAN_EXPECT_EQ(state.train_crc32,
+                    titan::runtime::token_crc32(repeating_tokens(400)));
 }
 
 TITAN_TEST(Trainer, CheckpointCallbackCadence) {

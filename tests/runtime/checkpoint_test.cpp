@@ -69,6 +69,9 @@ Checkpoint sample_checkpoint(Model& model) {
     c.state.val_rng = val_rng.save_state();
     c.state.train_tokens = 400;
     c.state.val_tokens = 100;
+    // The largest CRC-32 checks that the full 32-bit range round-trips.
+    c.state.train_crc32 = 0xFFFFFFFFu;
+    c.state.val_crc32 = 12345u;
     return c;
 }
 
@@ -147,6 +150,8 @@ TITAN_TEST(RuntimeCheckpoint, RoundTripRestoresModel) {
     TITAN_EXPECT(loaded.state.val_rng == saved.state.val_rng);
     TITAN_EXPECT_EQ(loaded.state.train_tokens, saved.state.train_tokens);
     TITAN_EXPECT_EQ(loaded.state.val_tokens, saved.state.val_tokens);
+    TITAN_EXPECT_EQ(loaded.state.train_crc32, saved.state.train_crc32);
+    TITAN_EXPECT_EQ(loaded.state.val_crc32, saved.state.val_crc32);
     TITAN_EXPECT(flat(loaded.state.optimizer.m) ==
                  flat(saved.state.optimizer.m));
     TITAN_EXPECT(flat(loaded.state.optimizer.v) ==
@@ -269,12 +274,15 @@ TITAN_TEST(RuntimeCheckpoint, RejectsMalformedMeta) {
     bad_train.set("lr", JsonValue::number(0));
     JsonValue bad_model = good.meta.at("model");
     bad_model.set("dim", JsonValue::string("16"));
+    JsonValue big_crc = good.meta.at("state");
+    big_crc.set("train_crc32", JsonValue::number(4294967296.0));
     JsonValue state_typo = good.meta.at("state");
     state_typo.set("stpe", JsonValue::number(1));
     const std::vector<Case> cases = {
         {"state", bad_state, "meta.state.train_rng"},
         {"state", negative_step, "meta.state.step"},
         {"state", state_typo, "meta.state.stpe"},
+        {"state", big_crc, "meta.state.train_crc32"},
         {"train", bad_train, "train.lr"},
         {"model", bad_model, "model.dim"},
         {"vocab_size", JsonValue::number(0), "meta.vocab_size"},

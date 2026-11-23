@@ -15,6 +15,7 @@
 
 #include "core/error.hpp"
 #include "core/rng.hpp"
+#include "io/checksum.hpp"
 #include "io/json_fields.hpp"
 #include "nn/loss.hpp"
 #include "nn/module.hpp"
@@ -150,6 +151,10 @@ std::vector<nn::Parameter*> parameters_on(model::Model& model, Device device) {
 
 }  // namespace
 
+std::uint32_t token_crc32(std::span<const std::int32_t> ids) {
+    return io::crc32(std::as_bytes(ids));
+}
+
 Trainer::Trainer(model::Model& model, TrainConfig config,
                  std::vector<std::int32_t> train_tokens,
                  std::vector<std::int32_t> val_tokens, std::ostream& log)
@@ -164,6 +169,8 @@ Trainer::Trainer(model::Model& model, TrainConfig config,
       config_(config),
       train_tokens_(static_cast<std::int64_t>(train_tokens.size())),
       val_tokens_(static_cast<std::int64_t>(val_tokens.size())),
+      train_crc32_(token_crc32(train_tokens)),
+      val_crc32_(token_crc32(val_tokens)),
       train_loader_(std::move(train_tokens), config.batch, config.seq,
                     config.seed),
       val_loader_(std::move(val_tokens), config.batch, config.seq,
@@ -204,6 +211,16 @@ void Trainer::resume_from(const TrainerState& s) {
                 changed("train", s.train_tokens, train_tokens_));
     TITAN_CHECK(s.val_tokens == val_tokens_,
                 changed("val", s.val_tokens, val_tokens_));
+    const auto content_changed = [](const char* which, std::uint32_t saved,
+                                    std::uint32_t now) {
+        return std::string("resume: ") + which +
+               " tokens changed (checkpoint crc32 " + std::to_string(saved) +
+               ", now " + std::to_string(now) + ")";
+    };
+    TITAN_CHECK(s.train_crc32 == train_crc32_,
+                content_changed("train", s.train_crc32, train_crc32_));
+    TITAN_CHECK(s.val_crc32 == val_crc32_,
+                content_changed("val", s.val_crc32, val_crc32_));
     TITAN_CHECK(s.step >= 0 && s.step <= config_.steps,
                 "resume: step " + std::to_string(s.step) +
                     " is outside [0, train.steps " +
@@ -234,6 +251,8 @@ TrainerState Trainer::state() const {
     s.val_rng = val_loader_.rng().save_state();
     s.train_tokens = train_tokens_;
     s.val_tokens = val_tokens_;
+    s.train_crc32 = train_crc32_;
+    s.val_crc32 = val_crc32_;
     return s;
 }
 
