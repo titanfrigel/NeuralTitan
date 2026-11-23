@@ -283,9 +283,9 @@ add_test(NAME cli_generate_cuda_smoke
 set_tests_properties(cli_generate_cuda_smoke PROPERTIES
   SKIP_REGULAR_EXPRESSION "no CUDA device available")
 
-# Runtime failures of generate exit 1 with "error:" and print nothing to
+# Runtime failures that must exit 1 with "error:" and print nothing to
 # stdout.
-function(add_cli_generate_failure name pattern)
+function(add_cli_quiet_failure name pattern)
   add_test(NAME ${name}
     COMMAND ${CMAKE_COMMAND}
       -DEXE=$<TARGET_FILE:titan>
@@ -295,9 +295,9 @@ function(add_cli_generate_failure name pattern)
       -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_failure.cmake)
 endfunction()
 
-add_cli_generate_failure(cli_generate_unknown_char "error: .*U[+]005A"
+add_cli_quiet_failure(cli_generate_unknown_char "error: .*U[+]005A"
   "generate;--checkpoint;${CLI_CKPT};--prompt;Zounds;--device;cpu")
-add_cli_generate_failure(cli_generate_missing_checkpoint
+add_cli_quiet_failure(cli_generate_missing_checkpoint
   "error: .*missing[.]ckpt"
   "generate;--checkpoint;${CLI_OUT}/missing.ckpt;--device;cpu")
 
@@ -313,3 +313,10 @@ add_test(NAME cli_generate_bad_flags
 set_tests_properties(cli_generate_smoke cli_generate_greedy_cache_equals_nocache
   cli_generate_cuda_smoke cli_generate_unknown_char
   PROPERTIES FIXTURES_REQUIRED cli_checkpoint)
+
+# Resuming a run that already reached train.steps fails before any output.
+add_cli_quiet_failure(cli_train_resume_finished
+  "error: .*latest[.]ckpt: the run already finished at step 20 of 20"
+  "train;--resume;${CLI_OUT}/ckpt;--device;cpu")
+set_tests_properties(cli_train_resume_finished PROPERTIES
+  FIXTURES_REQUIRED cli_checkpoint)

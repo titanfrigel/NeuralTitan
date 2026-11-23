@@ -229,7 +229,7 @@ The `titan train` command wires this in (M3):
 
 - Every run saves `<out>/latest.ckpt` through `Trainer::on_checkpoint`: every `train.checkpoint_interval` steps (when above 0), after the last step, and after the `--stop-at N` step. Each save overwrites the previous one; there is no checkpoint history.
 - `--stop-at N` ends a run after step N, which must lie after the last completed step and at most at `train.steps`. A stopped run skips the end-of-run sample.
-- `titan train --resume <dir>` reads `<dir>/latest.ckpt` (the header first, then the model built from it), `train.bin` and `val.bin`. It checks every token id against the vocabulary and continues to `train.steps`. The configs and tokenizer come from the checkpoint, so `--config`, `--data`, `--out`, `--tokenizer` and `--steps` are usage errors with it. Only the device and the GEMM backend are chosen anew.
+- `titan train --resume <dir>` reads `<dir>/latest.ckpt` (the header first, then the model built from it), `train.bin` and `val.bin`. It checks every token id against the vocabulary and continues to `train.steps`. A checkpoint already at `train.steps` is refused ("the run already finished at step N of N") before any output. The configs and tokenizer come from the checkpoint, so `--config`, `--data`, `--out`, `--tokenizer` and `--steps` are usage errors with it. Only the device and the GEMM backend are chosen anew.
 - The end-of-run sample still uses `generate_naive` with the M1 seed and temperature, so `sample.txt` stays reproducible across milestones.
 
 ## 7. Architecture decisions

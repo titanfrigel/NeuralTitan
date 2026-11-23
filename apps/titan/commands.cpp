@@ -385,6 +385,12 @@ void train_resume(const Flags& flags, Device device,
     runtime::TrainConfig tc = header.train;
     tc.device = device;
     check_stop_at(stop_at, header.state.step, tc.steps);
+    // A finished run has no step left: resuming it would only rewrite the
+    // sample and report a validation loss that was never computed.
+    TITAN_CHECK(header.state.step < tc.steps,
+                path.string() + ": the run already finished at step " +
+                    std::to_string(header.state.step) + " of " +
+                    std::to_string(tc.steps));
     const std::vector<std::int32_t> train_tokens =
         read_run_tokens(out / "train.bin", tok.vocab_size());
     const std::vector<std::int32_t> val_tokens =
