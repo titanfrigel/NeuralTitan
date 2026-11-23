@@ -234,7 +234,7 @@ add_test(NAME cli_train_resume
     -DCONFIG=${CLI_FIXTURES}/checkpoint-config.json
     -DDATA=${CLI_FIXTURES}/tiny_corpus.txt
     -DSTEPS=6
-    -DSTOP_AT=3
+    -DSTOP_AT=2
     -DOUT_DIR=${CLI_OUT}/resume
     -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_train_resume.cmake)
 
