@@ -66,11 +66,16 @@ std::int32_t sample(std::span<const float> logits, const SamplerConfig& config,
             kept = static_cast<std::size_t>(config.top_k);
         }
         if (use_top_p) {
-            // Shortest prefix of the kept tokens with probability mass >= p.
+            // Shortest prefix of the kept tokens whose mass, renormalized over
+            // the top-k survivors, is >= top_p.
+            double kept_total = 0.0;
+            for (std::size_t r = 0; r < kept; ++r) {
+                kept_total += w[order[r]];
+            }
             double mass = 0.0;
             std::size_t prefix = 0;
             while (prefix < kept) {
-                mass += w[order[prefix]] / total;
+                mass += w[order[prefix]] / kept_total;
                 ++prefix;
                 if (mass >= static_cast<double>(config.top_p)) {
                     break;

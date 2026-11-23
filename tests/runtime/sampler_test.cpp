@@ -189,6 +189,22 @@ TITAN_TEST(Sampler, TopPKeepsMinimalSet) {
     TITAN_EXPECT_EQ(top[0], 1.0);
 }
 
+TITAN_TEST(Sampler, TopPAppliesAfterTopK) {
+    // p = {0.5, 0.3, 0.15, 0.05}. top_k = 3 keeps {0, 1, 2} with mass 0.95,
+    // renormalized to {0.526, 0.316, 0.158}. top_p = 0.83 then needs
+    // 0.526 + 0.316 = 0.842 >= 0.83, so only {0, 1} survive. (Against the
+    // full-vocabulary p the prefix sums are 0.5, 0.8, 0.95 and token 2 would
+    // be kept.)
+    const std::vector<float> logits = {std::log(0.5f), std::log(0.3f),
+                                       std::log(0.15f), std::log(0.05f)};
+    const std::vector<double> freq =
+        frequencies(logits, SamplerConfig{1.0f, 3, 0.83f}, 20000, 41);
+    TITAN_EXPECT_EQ(freq[2], 0.0);
+    TITAN_EXPECT_EQ(freq[3], 0.0);
+    TITAN_EXPECT_NEAR(freq[0], 0.625, 0.02);
+    TITAN_EXPECT_NEAR(freq[1], 0.375, 0.02);
+}
+
 TITAN_TEST(Sampler, FrequenciesMatchSoftmax) {
     const std::vector<float> logits = {1.0f, 0.0f, -1.0f, 2.0f, 0.5f};
     double total = 0.0;
