@@ -9,6 +9,7 @@
 #include "model/model.hpp"
 #include "optim/adamw.hpp"
 #include "runtime/trainer.hpp"
+#include "tokenizer/char_tokenizer.hpp"
 
 namespace titan::runtime {
 
@@ -58,5 +59,12 @@ void save_checkpoint(const std::filesystem::path& path, model::Model& model,
 // state.optimizer.m and .v are then empty.
 Checkpoint load_checkpoint(const std::filesystem::path& path,
                            model::Model* model);
+
+// The tokenizer stored in `ckpt` (read from `path`), rebuilt with
+// CharTokenizer::from_json. Throws titan::Error naming the file for a
+// malformed tokenizer, or when its vocabulary size differs from
+// ckpt.model.vocab_size, the size the model was built with.
+tokenizer::CharTokenizer checkpoint_tokenizer(const std::filesystem::path& path,
+                                              const Checkpoint& ckpt);
 
 }  // namespace titan::runtime

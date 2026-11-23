@@ -346,3 +346,5 @@ endfunction()
 # Token 0 of the corpus is 'F'; id 0 is '\n', in the vocabulary.
 add_cli_resume_failure(cli_train_resume_changed_tokens train.bin 0 0
   "error: .*train[.]bin: the token file changed since the checkpoint")
+add_cli_resume_failure(cli_train_resume_bad_token train.bin 5 9999
+  "error: .*train[.]bin: token 5 is 9999, outside")

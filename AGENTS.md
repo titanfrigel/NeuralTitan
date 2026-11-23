@@ -54,7 +54,7 @@ Current:
 - `src/runtime/`: the `runtime` layer (data loader, trainer, checkpoints, sampler, KV-cached generator).
 - `apps/titan/`: the `titan` executable (the `cli` layer): `main.cpp` and `commands.*`.
 - `configs/`: model and training JSON configs (`tiny-shakespeare.json`).
-- `tests/`: the test runner and tests. `tests/harness/` is the project's own test harness; `tests/layer_check/` holds fixtures for the layer include check; `tests/fixtures/cli/` holds hand-written CLI inputs (not generated golden fixtures), and the `tests/harness/expect_*.cmake` scripts drive the CLI tests; `tests/support/` holds shared helpers (`gradcheck.*`, and `parity.*` for CPU-vs-CUDA comparisons); `tests/ops/cuda/` holds the CPU-vs-CUDA parity tests.
+- `tests/`: the test runner and tests. `tests/harness/` is the project's own test harness; `tests/layer_check/` holds fixtures for the layer include check; `tests/fixtures/cli/` holds hand-written CLI inputs (not generated golden fixtures), and the `tests/harness/expect_*.cmake` scripts drive the CLI tests; `tests/tools/` holds small test-only programs (`edit_token_file` writes a token file with one token replaced); `tests/support/` holds shared helpers (`gradcheck.*`, and `parity.*` for CPU-vs-CUDA comparisons); `tests/ops/cuda/` holds the CPU-vs-CUDA parity tests.
 - `scripts/`: `check.ps1`, `format.ps1`, `dev-env.ps1` and the layer include check.
 - `tools/`: development-only Python requirements (the venv is git-ignored).
 - `docs/specs/`: approved design specs.

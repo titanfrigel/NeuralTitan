@@ -203,19 +203,6 @@ Device select_device(const Flags& flags) {
     return device;
 }
 
-// The tokenizer stored in a checkpoint, checked against the model's
-// vocabulary size.
-tokenizer::CharTokenizer checkpoint_tokenizer(const fs::path& path,
-                                              const runtime::Checkpoint& ckpt) {
-    auto tok = tokenizer::CharTokenizer::from_json(ckpt.tokenizer);
-    TITAN_CHECK(tok.vocab_size() == ckpt.model.vocab_size,
-                path.string() + ": the tokenizer has " +
-                    std::to_string(tok.vocab_size()) +
-                    " tokens but vocab_size is " +
-                    std::to_string(ckpt.model.vocab_size));
-    return tok;
-}
-
 // A token file of a run directory, with every id checked against the
 // vocabulary (the model does not validate its inputs), and the stream checked
 // against the length and CRC-32 the checkpoint saved for it.
@@ -392,7 +379,7 @@ void train_resume(const Flags& flags, Device device,
 
     // The header first: it gives the model config to build.
     const runtime::Checkpoint header = runtime::load_checkpoint(path, nullptr);
-    const auto tok = checkpoint_tokenizer(path, header);
+    const auto tok = runtime::checkpoint_tokenizer(path, header);
     runtime::TrainConfig tc = header.train;
     tc.device = device;
     check_stop_at(stop_at, header.state.step, tc.steps);
@@ -480,7 +467,7 @@ void generate(std::span<const std::string_view> args) {
     // or an unknown character fails here, before any output.
     const fs::path path = flags.at("checkpoint");
     const runtime::Checkpoint header = runtime::load_checkpoint(path, nullptr);
-    const auto tok = checkpoint_tokenizer(path, header);
+    const auto tok = runtime::checkpoint_tokenizer(path, header);
     std::vector<std::int32_t> prompt;
     if (flags.contains("prompt")) {
         try {

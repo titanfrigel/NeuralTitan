@@ -223,6 +223,37 @@ TITAN_TEST(RuntimeCheckpoint, RejectsConfigMismatch) {
     std::filesystem::remove(p);
 }
 
+TITAN_TEST(RuntimeCheckpoint, TokenizerMustMatchVocab) {
+    Model m(llama_style(5, 16, 1, 2, 1, 8));
+    Checkpoint c = sample_checkpoint(m);
+    c.tokenizer = titan::io::parse_json(
+        R"({"type": "char", "vocab": ["a", "b", "c", "d", "e"]})");
+    const std::filesystem::path p = "run/latest.ckpt";
+    // Five tokens, as the model expects.
+    TITAN_EXPECT_EQ(titan::runtime::checkpoint_tokenizer(p, c).vocab_size(),
+                    std::int64_t{5});
+
+    const auto error = [&](const char* tokenizer_json) {
+        Checkpoint bad = c;
+        bad.tokenizer = titan::io::parse_json(tokenizer_json);
+        try {
+            titan::runtime::checkpoint_tokenizer(p, bad);
+        } catch (const titan::Error& e) {
+            return std::string(e.what());
+        }
+        return std::string();
+    };
+    const std::string fewer =
+        error(R"({"type": "char", "vocab": ["a", "b", "c"]})");
+    TITAN_EXPECT(contains(fewer, p.string()));
+    TITAN_EXPECT(contains(fewer,
+                          "the tokenizer has 3 tokens but "
+                          "meta.vocab_size is 5"));
+    const std::string malformed = error(R"({"type": "bpe"})");
+    TITAN_EXPECT(contains(malformed, p.string()));
+    TITAN_EXPECT(contains(malformed, "meta.tokenizer"));
+}
+
 TITAN_TEST(RuntimeCheckpoint, RejectsMissingTensor) {
     Model m(llama_style(5, 16, 1, 2, 1, 8));
     const auto p = temp_path("titan_rt_ckpt_missing.tckp");
