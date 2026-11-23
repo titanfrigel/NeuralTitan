@@ -52,6 +52,7 @@ target_sources(titan_tests PRIVATE
   optim/adamw_test.cpp
   io/json_test.cpp
   io/token_file_test.cpp
+  io/checkpoint_file_test.cpp
   tokenizer/char_tokenizer_test.cpp
   model/config_test.cpp
   model/model_test.cpp

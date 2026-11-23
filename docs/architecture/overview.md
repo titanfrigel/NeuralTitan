@@ -175,6 +175,29 @@ flowchart LR
 - **Determinism:** one seed controls initialization, data order and sampling. Runs are reproducible on the same device, but CPU and CUDA results are not bit-identical.
 - **Internationalization:** not applicable to the program. Text processing is UTF-8 throughout; the BPE tokenizer works on bytes.
 
+### Checkpoint format
+
+Checkpoints use a container written by `io::write_checkpoint_file` and read by `io::read_checkpoint_file` (`src/io/checkpoint_file.*`). All integers are little-endian.
+
+```text
+bytes 0..3    "TCKP"
+bytes 4..7    u32 version = 1
+bytes 8..15   u64 total file size
+bytes 16..23  u64 header length H (1 <= H <= 16 MiB)
+bytes 24..27  u32 CRC-32 of the header bytes
+bytes 28..    H bytes of UTF-8 JSON:
+                {"meta": {...}, "tensors": [{"name", "shape", "offset", "crc32"}, ...]}
+then          zero padding to a multiple of 64, which starts the data section
+data          each tensor's float32 values at its offset (relative to the data
+              section, a multiple of 64), in the order listed
+```
+
+- Every tensor is padded with zeros to 64 bytes, so the file ends exactly at the end of the last tensor's padding. Offsets are packed in listed order.
+- The CRC is CRC-32/ISO-HDLC (`io::crc32`, the zlib polynomial).
+- The reader checks the magic, version, total size, header length and header CRC before it parses the JSON. It then bounds-checks every entry (rank 1 to 4, positive dimensions, byte size without overflow, offset and size inside the data section, unique names) before allocating, streams each tensor from the file into its host tensor, and verifies the tensor's CRC. Any failure throws a `titan::Error` naming the file and the tensor (threat T2).
+- `io::read_checkpoint_meta` runs the same file-level and header checks and returns only `meta`, without reading tensor data, so a loader can read a checkpoint's configuration before building a model.
+- The writer writes `<path>.tmp` and renames it over `<path>` only when the file is complete, so an existing checkpoint survives a failed write. It rejects tensors that are not on the CPU.
+
 ## 7. Architecture decisions
 
 Decisions are recorded as ADRs; see the [decision index](../adr/README.md).
