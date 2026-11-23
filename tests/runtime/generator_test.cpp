@@ -181,6 +181,13 @@ TITAN_TEST(Generator, LongPromptKeepsTail) {
     TITAN_EXPECT(std::vector<std::int32_t>(out.begin(), out.end() - 1) ==
                  prompt);
     TITAN_EXPECT_EQ(out.back(), from_tail.back());
+    // The uncached reference sees the same tail, whether given the tail or
+    // the whole prompt.
+    Rng unused(0);  // greedy draws nothing
+    TITAN_EXPECT_EQ(out.back(),
+                    generate_naive(m, tail, 1, 0.0f, unused).back());
+    TITAN_EXPECT_EQ(out.back(),
+                    generate_naive(m, prompt, 1, 0.0f, unused).back());
 }
 
 TITAN_TEST(Generator, RejectsEmptyPrompt) {
