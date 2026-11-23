@@ -215,3 +215,101 @@ add_test(NAME cli_bench_matmul_smoke
 set_tests_properties(cli_bench_matmul_smoke PROPERTIES
   PASS_REGULAR_EXPRESSION "tiled"
   SKIP_REGULAR_EXPRESSION "no CUDA device available")
+
+# Checkpoints, resume and generation (M3). cli_train_writes_checkpoint leaves
+# the checkpoint that the generate tests read.
+add_test(NAME cli_train_writes_checkpoint
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    -DCONFIG=${CLI_FIXTURES}/checkpoint-config.json
+    -DDATA=${CLI_FIXTURES}/tiny_corpus.txt
+    -DOUT_DIR=${CLI_OUT}/ckpt
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_checkpoint.cmake)
+set_tests_properties(cli_train_writes_checkpoint PROPERTIES
+  FIXTURES_SETUP cli_checkpoint)
+
+add_test(NAME cli_train_resume
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    -DCONFIG=${CLI_FIXTURES}/checkpoint-config.json
+    -DDATA=${CLI_FIXTURES}/tiny_corpus.txt
+    -DSTEPS=6
+    -DSTOP_AT=3
+    -DOUT_DIR=${CLI_OUT}/resume
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_train_resume.cmake)
+
+add_cli_usage(cli_train_resume_rejects_config
+  "train;--resume;${CLI_OUT}/ckpt;--config;${CLI_FIXTURES}/tiny-config.json")
+add_cli_usage(cli_usage_stop_at_zero "${CLI_TRAIN_ARGS};--device;cpu;--stop-at;0")
+add_cli_failure(cli_train_stop_at_beyond_steps "--stop-at 21 must be after"
+  "train;--config;${CLI_FIXTURES}/tiny-config.json;--data;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/stop_beyond;--device;cpu;--stop-at;21")
+add_cli_failure(cli_train_resume_finished_stop_at
+  "--stop-at 20 must be after the last completed step 20"
+  "train;--resume;${CLI_OUT}/ckpt;--device;cpu;--stop-at;20")
+set_tests_properties(cli_train_resume_finished_stop_at PROPERTIES
+  FIXTURES_REQUIRED cli_checkpoint)
+
+set(CLI_CKPT ${CLI_OUT}/ckpt/latest.ckpt)
+set(CLI_PROMPT "First Citizen:")
+
+add_test(NAME cli_generate_smoke
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    -DCHECKPOINT=${CLI_CKPT}
+    "-DPROMPT=${CLI_PROMPT}"
+    -DMAX_NEW=20
+    "-DARGS=--device;cpu"
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_generate.cmake)
+
+add_test(NAME cli_generate_greedy_cache_equals_nocache
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    -DCHECKPOINT=${CLI_CKPT}
+    "-DPROMPT=${CLI_PROMPT}"
+    -DMAX_NEW=40
+    "-DARGS=--device;cpu;--temp;0"
+    "-DCOMPARE_ARGS=--device;cpu;--temp;0;--no-cache"
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_generate.cmake)
+
+add_test(NAME cli_generate_cuda_smoke
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    -DCHECKPOINT=${CLI_CKPT}
+    "-DPROMPT=${CLI_PROMPT}"
+    -DMAX_NEW=20
+    "-DARGS=--device;cuda"
+    -DCUDA_SKIP=ON
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_generate.cmake)
+set_tests_properties(cli_generate_cuda_smoke PROPERTIES
+  SKIP_REGULAR_EXPRESSION "no CUDA device available")
+
+# Runtime failures of generate exit 1 with "error:" and print nothing to
+# stdout.
+function(add_cli_generate_failure name pattern)
+  add_test(NAME ${name}
+    COMMAND ${CMAKE_COMMAND}
+      -DEXE=$<TARGET_FILE:titan>
+      "-DARGS=${ARGN}"
+      "-DPATTERN=${pattern}"
+      -DNO_STDOUT=ON
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_failure.cmake)
+endfunction()
+
+add_cli_generate_failure(cli_generate_unknown_char "error: .*U[+]005A"
+  "generate;--checkpoint;${CLI_CKPT};--prompt;Zounds;--device;cpu")
+add_cli_generate_failure(cli_generate_missing_checkpoint
+  "error: .*missing[.]ckpt"
+  "generate;--checkpoint;${CLI_OUT}/missing.ckpt;--device;cpu")
+
+# Every bad sampling flag is a usage error, found before the (here missing)
+# checkpoint is read.
+set(CLI_GEN_ARGS "generate;--checkpoint;${CLI_OUT}/missing.ckpt;--device;cpu")
+add_test(NAME cli_generate_bad_flags
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    "-DCASES=${CLI_GEN_ARGS};--top-p;0;|;${CLI_GEN_ARGS};--top-p;1.5;|;${CLI_GEN_ARGS};--top-k;-1;|;${CLI_GEN_ARGS};--temp;-1;|;${CLI_GEN_ARGS};--max-new;0;|;${CLI_GEN_ARGS};--no-cache;x;|;${CLI_GEN_ARGS};--seed;-3"
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_usage_cases.cmake)
+
+set_tests_properties(cli_generate_smoke cli_generate_greedy_cache_equals_nocache
+  cli_generate_cuda_smoke cli_generate_unknown_char
+  PROPERTIES FIXTURES_REQUIRED cli_checkpoint)

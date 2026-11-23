@@ -118,6 +118,15 @@ std::vector<std::int32_t> generate_naive(model::Model& model,
                                          std::vector<std::int32_t> prompt,
                                          std::int64_t n_new, float temperature,
                                          Rng& rng) {
+    return generate_naive(model, std::move(prompt), n_new,
+                          SamplerConfig{temperature, 0, 1.0f}, rng);
+}
+
+std::vector<std::int32_t> generate_naive(
+    model::Model& model, std::vector<std::int32_t> prompt, std::int64_t n_new,
+    const SamplerConfig& config, Rng& rng,
+    const std::function<void(std::int32_t)>& on_token) {
+    validate(config);
     TITAN_CHECK(!prompt.empty(), "generate_naive: empty prompt");
     TITAN_CHECK(n_new >= 0, "generate_naive: n_new must be >= 0, got " +
                                 std::to_string(n_new));
@@ -135,7 +144,8 @@ std::vector<std::int32_t> generate_naive(model::Model& model,
         const std::vector<float> all = logits.to_vector();
         const std::span<const float> last(all.data() + (t - 1) * vocab,
                                           static_cast<std::size_t>(vocab));
-        tokens.push_back(sample_token(last, temperature, rng));
+        tokens.push_back(sample(last, config, rng));
+        if (on_token) on_token(tokens.back());
     }
     return tokens;
 }

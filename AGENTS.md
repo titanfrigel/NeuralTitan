@@ -28,9 +28,11 @@ A from-scratch C++/CUDA library for building, training and running modern decode
 Run from the repository root in PowerShell:
 
 - `. ./scripts/dev-env.ps1; Enter-TitanDevEnv`: load the MSVC 14.38 environment (once per shell).
-- `cmake --preset release` then `cmake --build --preset release`: configure and build (`debug` preset also exists). The program is `build/<preset>/apps/titan.exe`; its commands are `titan --version`, `titan info`, `titan tokenizer train`, `titan train` and `titan bench matmul` (below).
+- `cmake --preset release` then `cmake --build --preset release`: configure and build (`debug` preset also exists). The program is `build/<preset>/apps/titan.exe`; its commands are `titan --version`, `titan info`, `titan tokenizer train`, `titan train`, `titan generate` and `titan bench matmul` (below).
 - `build/<preset>/apps/titan.exe tokenizer train --type char --corpus <file> --out <tok.json>`: build and save a character tokenizer.
-- `build/<preset>/apps/titan.exe train --config <cfg.json> --data <corpus.txt> --out <dir> [--tokenizer <tok.json>] [--steps N] [--device cpu|cuda] [--gemm cublas|naive|tiled]`: train a model (on the GPU when one is available, otherwise on the CPU; `--gemm` picks the CUDA GEMM and needs `--device cuda` unless it is `cublas`) and write the tokenizer, token files and a sample to `<dir>`. `configs/tiny-shakespeare.json` is the M1 and M2 config.
+- `build/<preset>/apps/titan.exe train --config <cfg.json> --data <corpus.txt> --out <dir> [--tokenizer <tok.json>] [--steps N] [--device cpu|cuda] [--gemm cublas|naive|tiled]`: train a model (on the GPU when one is available, otherwise on the CPU; `--gemm` picks the CUDA GEMM and needs `--device cuda` unless it is `cublas`) and write the tokenizer, token files and a sample to `<dir>`. `configs/tiny-shakespeare.json` is the M1 and M2 config (M3 adds `checkpoint_interval`). Every run saves `<dir>/latest.ckpt` (every `train.checkpoint_interval` steps, after the last step and after `--stop-at N`); `--stop-at N` ends the run after step N.
+- `build/<preset>/apps/titan.exe train --resume <dir> [--stop-at N] [--device cpu|cuda] [--gemm cublas|naive|tiled]`: continue the run saved in `<dir>/latest.ckpt` on `<dir>/train.bin` and `val.bin`, bit-identical to an uninterrupted run. `--config`, `--data`, `--out`, `--tokenizer` and `--steps` are rejected with it.
+- `build/<preset>/apps/titan.exe generate --checkpoint <file> [--prompt <text>] [--max-new N] [--temp T] [--top-k K] [--top-p P] [--seed S] [--device cpu|cuda] [--no-cache]`: echo the prompt (default a newline) and stream sampled text to stdout with the KV-cached generator, then print `tokens/s` to stderr. Defaults: `--temp 0.8 --top-k 0 --top-p 0.9 --max-new 500`, the seed from the checkpoint. `--temp 0` is greedy; `--no-cache` recomputes the whole window per token.
 - `build/<preset>/apps/titan.exe bench matmul [--sizes 256,512,1024,2048,4096] [--repeat 10]`: time square GEMMs with each CUDA GEMM backend against the GPU's peak FP32 throughput and bandwidth (needs a GPU).
 - `ctest --preset release`: run the tests of the release build (`ctest --preset debug` after building the debug preset).
 - `scripts/check.ps1 [-Preset debug|release]`: the single check: format check, build with warnings as errors, all tests including the layer check. Prints `check: OK`. CI runs it.
@@ -43,7 +45,7 @@ Run from the repository root in PowerShell:
 Current:
 
 - `src/core/`: the `core` layer (errors, device, storage, caching allocator, tensor, rng, parallel_for, `utf8.*` for UTF-8 encoding and decoding).
-- `src/io/`: the `io` layer (JSON parser and writer, file helpers, token files).
+- `src/io/`: the `io` layer (JSON parser and writer, file helpers, token files, `checksum.*` (CRC-32) and the checkpoint container `checkpoint_file.*`).
 - `src/tokenizer/`: the `tokenizer` layer (character-level tokenizer).
 - `src/ops/`: the `ops` layer, with the CPU backend `ops/cpu` and the CUDA backend `ops/cuda` (`common.cuh` launch helpers and shared block reduction, `cublas_handle.cu`, and one `.cu` per op family: elementwise, reduce, matmul, softmax, norm, rope, layout, embedding, cross-entropy, adamw).
 - `src/nn/`: the `nn` layer (modules with hand-written backward passes, and the KV cache for inference).
@@ -52,7 +54,7 @@ Current:
 - `src/runtime/`: the `runtime` layer (data loader, trainer, checkpoints, sampler, KV-cached generator).
 - `apps/titan/`: the `titan` executable (the `cli` layer): `main.cpp` and `commands.*`.
 - `configs/`: model and training JSON configs (`tiny-shakespeare.json`).
-- `tests/`: the test runner and tests. `tests/harness/` is the project's own test harness; `tests/layer_check/` holds fixtures for the layer include check; `tests/fixtures/cli/` holds hand-written CLI inputs (not generated golden fixtures); `tests/support/` holds shared helpers (`gradcheck.*`, and `parity.*` for CPU-vs-CUDA comparisons); `tests/ops/cuda/` holds the CPU-vs-CUDA parity tests.
+- `tests/`: the test runner and tests. `tests/harness/` is the project's own test harness; `tests/layer_check/` holds fixtures for the layer include check; `tests/fixtures/cli/` holds hand-written CLI inputs (not generated golden fixtures), and the `tests/harness/expect_*.cmake` scripts drive the CLI tests; `tests/support/` holds shared helpers (`gradcheck.*`, and `parity.*` for CPU-vs-CUDA comparisons); `tests/ops/cuda/` holds the CPU-vs-CUDA parity tests.
 - `scripts/`: `check.ps1`, `format.ps1`, `dev-env.ps1` and the layer include check.
 - `tools/`: development-only Python requirements (the venv is git-ignored).
 - `docs/specs/`: approved design specs.

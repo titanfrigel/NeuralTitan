@@ -72,7 +72,7 @@ Library layers, bottom to top:
 | `optim` | AdamW, learning-rate schedules, gradient clipping | C++20 | 0005 |
 | `model` | `ModelConfig`, model assembly from config, presets, mapping Hugging Face weights to parameters, checkpoint save/load | C++20 | 0005 |
 | `runtime` | DataLoader, Trainer, Generator, Sampler | C++20 | 0005 |
-| `cli` | `titan` subcommands: `tokenizer train`, `train` (`--device cpu\|cuda`, defaulting to cuda when a GPU is available; `--gemm cublas\|naive\|tiled`), `bench matmul`, `generate` | C++20 | 0005 |
+| `cli` | `titan` subcommands: `tokenizer train`, `train` (`--device cpu\|cuda`, defaulting to cuda when a GPU is available; `--gemm cublas\|naive\|tiled`; `--stop-at N`; `--resume <dir>`), `bench matmul`, `generate` (`--checkpoint`, sampling flags, `--no-cache`) | C++20 | 0005 |
 
 ## 4. Runtime view
 
@@ -126,6 +126,17 @@ sequenceDiagram
     Gen->>Model: forward(next token, inference) uses KV cache
   end
 ```
+
+As implemented in M3 (`titan generate` in `apps/titan/commands.cpp`, `runtime::Generator` in `src/runtime/generator.*`):
+
+1. The CLI validates every flag first: a bad `--temp`, `--top-k`, `--top-p`, `--max-new` or `--seed` is a usage error (exit 2) before any file is read.
+2. It reads the checkpoint header (`load_checkpoint(path, nullptr)`), rebuilds the tokenizer from the checkpoint's JSON and encodes the prompt. A damaged file or a character outside the vocabulary fails here, with `error:` on stderr, exit 1 and nothing on stdout.
+3. It builds the model from the saved config, loads the parameters, moves the model to the device, and only then constructs the `Generator`, whose KV cache is allocated on the model's device.
+4. It echoes the prompt and streams each sampled character to stdout, flushing per token, then writes `tokens/s` to stderr.
+
+- The character tokenizer has no end-of-sequence token, so generation always runs `--max-new` tokens.
+- When the cache is full, the Generator slides by half: it keeps the last `context_length / 2` tokens, clears the cache and prefills them again.
+- `--no-cache` runs `generate_naive` with the same sampler settings instead, recomputing the whole window for every token. Before the first slide, both paths give the same tokens for the same seed.
 
 ### Failure path: malformed input file
 
@@ -214,6 +225,13 @@ tensors  every parameter under its name, in the model's parameter order,
 - `load_checkpoint(path, nullptr)` reads only the header, so a caller can build the model from the saved config first. With a model, it requires exactly the model's parameter and moment names with matching shapes, checks them all before it changes the model, and copies the parameters onto the model's current device.
 - A resumed `Trainer` takes the saved `TrainerState`: it moves the model to the training device, builds AdamW there and loads the moments into it, restores both loaders' generators and continues at the step after the saved one, so the result equals the uninterrupted run bit for bit. It refuses token streams whose lengths differ from the saved counts.
 
+The `titan train` command wires this in (M3):
+
+- Every run saves `<out>/latest.ckpt` through `Trainer::on_checkpoint`: every `train.checkpoint_interval` steps (when above 0), after the last step, and after the `--stop-at N` step. Each save overwrites the previous one; there is no checkpoint history.
+- `--stop-at N` ends a run after step N, which must lie after the last completed step and at most at `train.steps`. A stopped run skips the end-of-run sample.
+- `titan train --resume <dir>` reads `<dir>/latest.ckpt` (the header first, then the model built from it), `train.bin` and `val.bin`. It checks every token id against the vocabulary and continues to `train.steps`. The configs and tokenizer come from the checkpoint, so `--config`, `--data`, `--out`, `--tokenizer` and `--steps` are usage errors with it. Only the device and the GEMM backend are chosen anew.
+- The end-of-run sample still uses `generate_naive` with the M1 seed and temperature, so `sample.txt` stays reproducible across milestones.
+
 ## 7. Architecture decisions
 
 Decisions are recorded as ADRs; see the [decision index](../adr/README.md).
@@ -262,6 +280,7 @@ Decisions are recorded as ADRs; see the [decision index](../adr/README.md).
 
 - **T1.** The `io` readers bounds-check every header length, offset and element count against the file size before allocating or reading, and cap header sizes. Tests feed malformed and truncated fixture files and expect a clean `titan::Error`.
 - **T2.** The checkpoint format carries a magic number, format version, total size and per-section checksums, all verified before loading. Checkpoints are written to a temporary file and renamed into place once complete.
+  - Implemented in M3: see the [checkpoint format](#checkpoint-format). `titan train --resume` and `titan generate` read only through `runtime::load_checkpoint`, which runs every check before any tensor is used. The resume path also checks the token files against the vocabulary and the saved token counts.
 - **T3.** ADR 0004 names only `torch`, `transformers` and `safetensors`. Versions are pinned by the package manager inside an isolated venv, and nothing from `tools/` is linked into the build.
 - **T4.** Gitleaks runs as a pre-commit hook and in CI. GitHub secret scanning with push protection is on (public repository).
 - **T5.** The tooling loads weights only from `safetensors` files, never from pickle-based `.bin` files.

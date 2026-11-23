@@ -85,6 +85,24 @@ TITAN_TEST(Generator, SampledMatchesNaiveOnCpu) {
     TITAN_EXPECT(gen.generate(kPrompt, 40) == want);
 }
 
+// The uncached generate_naive with the full sampling controls (what
+// `titan generate --no-cache` runs) draws the same tokens as the Generator
+// before the first slide, and streams each one.
+TITAN_TEST(Generator, FilteredMatchesNaive) {
+    Model m(config_with_context(64));
+    init_model(m, 73);
+    const SamplerConfig config{0.9f, 10, 0.8f};
+    Rng rng(7);
+    std::vector<std::int32_t> streamed;
+    const std::vector<std::int32_t> want =
+        generate_naive(m, kPrompt, 40, config, rng,
+                       [&](std::int32_t id) { streamed.push_back(id); });
+    Generator gen(m, config, 7);
+    TITAN_EXPECT(gen.generate(kPrompt, 40) == want);
+    TITAN_EXPECT(std::vector<std::int32_t>(want.begin() + 5, want.end()) ==
+                 streamed);
+}
+
 TITAN_TEST(Generator, StreamsEveryToken) {
     Model m(config_with_context(64));
     init_model(m, 72);
