@@ -31,6 +31,10 @@ Parameters of rank 1 (norm weights and biases) get `λ = 0`: decaying a scale th
 
 The optimizer has no gradient of its own: it consumes the gradients computed by the modules. The update follows from the definitions above. The first moment is an exponential moving average, `m_t = (1 − β₁) Σ_k β₁^{t−k} g_k`, so for a constant gradient its weights sum to `1 − β₁ᵗ`, which is the bias-correction divisor. The same holds for `v_t` with `β₂`. The clip scaling is linear, so after clipping `Σ (c/‖g‖ · g_i)² = c²`.
 
+## State
+
+The update at step `t` depends on the history only through the step counter `t` and the moments `m` and `v`, so those are the whole optimizer state (the hyperparameters come from the config). `AdamW::state()` returns an `AdamWState` holding `t` and, for each parameter in construction order, copies of `m` and `v` on the CPU. `AdamW::load_state` copies them back to each parameter's device and throws, naming the parameter, if the count or a shape does not match. Restoring the state and the parameters and then continuing gives the same bits as an uninterrupted run, because the update is a deterministic function of `(param, grad, m, v, t)`.
+
 ## Shapes
 
 - `AdamW`: one first moment and one second moment per parameter, each with the parameter's shape.
@@ -43,7 +47,7 @@ The optimizer has no gradient of its own: it consumes the gradients computed by 
 - `src/ops/adamw.hpp`: `ops::adamw_update`, the update formula. `src/ops/adamw.cpp` validates and routes to `src/ops/cpu/adamw.cpp` or `src/ops/cuda/adamw.cu`.
 - `src/optim/clip.hpp`, `clip.cpp`: `optim::clip_grad_norm`, using `ops::sum_squares` and `ops::scale_`.
 - `src/optim/schedule.hpp`, `schedule.cpp`: `optim::lr_at`.
-- `tests/optim/optim_test.cpp`: the tests.
+- `tests/optim/optim_test.cpp`: the tests; `tests/optim/adamw_test.cpp`: the state round trip.
 
 ## CUDA implementation
 

@@ -1,7 +1,17 @@
 #include "core/rng.hpp"
 
+#include <bit>
+#include <cctype>
+#include <charconv>
 #include <cmath>
+#include <cstddef>
+#include <exception>
+#include <locale>
+#include <sstream>
 #include <string>
+#include <string_view>
+#include <system_error>
+#include <vector>
 
 #include "core/device.hpp"
 #include "core/error.hpp"
@@ -54,6 +64,82 @@ void Rng::fill_normal(Tensor& t, float mean, float stddev) {
     for (std::int64_t i = 0; i < n; ++i) {
         p[i] = mean + stddev * normal();
     }
+}
+
+std::string Rng::save_state() const {
+    std::ostringstream out;
+    out.imbue(std::locale::classic());
+    out << engine_ << ' ' << (has_cached_normal_ ? 1 : 0) << ' '
+        << std::bit_cast<std::uint64_t>(cached_normal_);
+    return out.str();
+}
+
+namespace {
+
+// The whitespace-separated fields of `text`.
+std::vector<std::string_view> split_fields(std::string_view text) {
+    std::vector<std::string_view> fields;
+    std::size_t i = 0;
+    while (i < text.size()) {
+        while (i < text.size() &&
+               std::isspace(static_cast<unsigned char>(text[i])))
+            ++i;
+        const std::size_t start = i;
+        while (i < text.size() &&
+               !std::isspace(static_cast<unsigned char>(text[i])))
+            ++i;
+        if (i > start) fields.push_back(text.substr(start, i - start));
+    }
+    return fields;
+}
+
+// Parses a whole field as a decimal uint64.
+bool parse_u64(std::string_view field, std::uint64_t& out) {
+    const auto [end, ec] =
+        std::from_chars(field.data(), field.data() + field.size(), out);
+    return ec == std::errc() && end == field.data() + field.size();
+}
+
+}  // namespace
+
+void Rng::load_state(std::string_view state) {
+    // The standard library's engine reader does not report a bad stream
+    // reliably (MSVC throws std::invalid_argument or reads garbage), so check
+    // the fields here first: the engine's own field count, then digits only.
+    std::ostringstream reference;
+    reference << std::mt19937_64();
+    const std::size_t engine_fields = split_fields(reference.str()).size();
+
+    const std::vector<std::string_view> fields = split_fields(state);
+    bool ok = fields.size() == engine_fields + 2;
+    std::uint64_t value = 0;
+    for (std::size_t i = 0; ok && i < fields.size(); ++i) {
+        ok = parse_u64(fields[i], value);
+    }
+    std::uint64_t flag = 0;
+    std::uint64_t bits = 0;
+    ok = ok && parse_u64(fields[engine_fields], flag) && flag <= 1 &&
+         parse_u64(fields[engine_fields + 1], bits);
+    std::mt19937_64 engine;
+    if (ok) {
+        std::string engine_text;
+        for (std::size_t i = 0; i < engine_fields; ++i) {
+            engine_text += i == 0 ? "" : " ";
+            engine_text += fields[i];
+        }
+        std::istringstream in(engine_text);
+        in.imbue(std::locale::classic());
+        try {
+            in >> engine;
+            ok = !in.fail();
+        } catch (const std::exception&) {
+            ok = false;
+        }
+    }
+    TITAN_CHECK(ok, "Rng::load_state: malformed state");
+    engine_ = engine;
+    has_cached_normal_ = flag == 1;
+    cached_normal_ = std::bit_cast<double>(bits);
 }
 
 }  // namespace titan

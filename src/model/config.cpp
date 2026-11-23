@@ -137,6 +137,33 @@ ModelConfig parse_model_config(const io::JsonValue& model_section,
     return c;
 }
 
+io::JsonValue model_config_to_json(const ModelConfig& c) {
+    io::JsonValue blocks = io::JsonValue::array();
+    for (const BlockConfig& b : c.blocks) {
+        io::JsonValue o = io::JsonValue::object();
+        o.set("n_heads", io::JsonValue::number(static_cast<double>(b.n_heads)));
+        o.set("n_kv_heads",
+              io::JsonValue::number(static_cast<double>(b.n_kv_heads)));
+        o.set("mlp", io::JsonValue::string(b.mlp));
+        o.set("mlp_hidden",
+              io::JsonValue::number(static_cast<double>(b.mlp_hidden)));
+        o.set("norm", io::JsonValue::string(b.norm));
+        o.set("position", io::JsonValue::string(b.position));
+        blocks.push_back(std::move(o));
+    }
+    io::JsonValue m = io::JsonValue::object();
+    m.set("dim", io::JsonValue::number(static_cast<double>(c.dim)));
+    m.set("context_length",
+          io::JsonValue::number(static_cast<double>(c.context_length)));
+    m.set("rope_theta",
+          io::JsonValue::number(static_cast<double>(c.rope_theta)));
+    m.set("norm_eps", io::JsonValue::number(static_cast<double>(c.norm_eps)));
+    m.set("tied_embeddings", io::JsonValue::boolean(c.tied_embeddings));
+    m.set("final_norm", io::JsonValue::string(c.final_norm));
+    m.set("blocks", std::move(blocks));
+    return m;
+}
+
 ModelConfig llama_style(std::int64_t vocab, std::int64_t dim,
                         std::int64_t n_layers, std::int64_t n_heads,
                         std::int64_t n_kv_heads, std::int64_t context) {

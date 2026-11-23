@@ -27,7 +27,8 @@ TrainConfig parse_train_config(const io::JsonValue& section) {
         section, "train config", "train",
         {"batch", "seq", "steps", "grad_accum", "lr", "min_lr", "warmup",
          "weight_decay", "beta1", "beta2", "eps", "grad_clip", "eval_interval",
-         "eval_batches", "log_interval", "seed", "val_fraction"});
+         "eval_batches", "log_interval", "seed", "val_fraction",
+         "checkpoint_interval"});
 
     TrainConfig c;
     c.batch = f.integer(f.require("batch"), "batch", 1);
@@ -89,7 +90,39 @@ TrainConfig parse_train_config(const io::JsonValue& section) {
         }
         c.val_fraction = static_cast<float>(d);
     }
+    if (const io::JsonValue* v = f.find("checkpoint_interval")) {
+        c.checkpoint_interval = f.integer(*v, "checkpoint_interval", 0);
+    }
     return c;
+}
+
+io::JsonValue train_config_to_json(const TrainConfig& c) {
+    io::JsonValue o = io::JsonValue::object();
+    const auto integer = [&](const char* key, std::int64_t v) {
+        o.set(key, io::JsonValue::number(static_cast<double>(v)));
+    };
+    const auto real = [&](const char* key, float v) {
+        o.set(key, io::JsonValue::number(static_cast<double>(v)));
+    };
+    integer("batch", c.batch);
+    integer("seq", c.seq);
+    integer("steps", c.steps);
+    integer("grad_accum", c.grad_accum);
+    real("lr", c.lr);
+    real("min_lr", c.min_lr);
+    integer("warmup", c.warmup);
+    real("weight_decay", c.weight_decay);
+    real("beta1", c.beta1);
+    real("beta2", c.beta2);
+    real("eps", c.eps);
+    real("grad_clip", c.grad_clip);
+    integer("eval_interval", c.eval_interval);
+    integer("eval_batches", c.eval_batches);
+    integer("log_interval", c.log_interval);
+    integer("seed", static_cast<std::int64_t>(c.seed));
+    real("val_fraction", c.val_fraction);
+    integer("checkpoint_interval", c.checkpoint_interval);
+    return o;
 }
 
 namespace {

@@ -49,6 +49,7 @@ target_sources(titan_tests PRIVATE
   nn/block_test.cpp
   nn/module_parity_test.cpp
   optim/optim_test.cpp
+  optim/adamw_test.cpp
   io/json_test.cpp
   io/token_file_test.cpp
   tokenizer/char_tokenizer_test.cpp
@@ -56,6 +57,7 @@ target_sources(titan_tests PRIVATE
   model/model_test.cpp
   model/model_cuda_test.cpp
   runtime/data_loader_test.cpp
+  runtime/train_config_test.cpp
   runtime/trainer_test.cpp
   runtime/sampler_test.cpp
 )

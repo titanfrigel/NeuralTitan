@@ -31,18 +31,29 @@ struct TrainConfig {
     // Where the model trains. Set by the caller, not read from the config
     // file; the Trainer moves the model there before the first step.
     Device device = Device::CPU;
+    // Save a checkpoint every this many steps; 0 disables periodic
+    // checkpoints.
+    std::int64_t checkpoint_interval = 0;
+
+    bool operator==(const TrainConfig&) const = default;
 };
 
 // Parses and validates the "train" section. Required: batch, seq, steps, lr,
 // min_lr, warmup, eval_interval, eval_batches, log_interval, seed. Optional
 // (default): grad_accum (1), grad_clip (1.0), val_fraction (0.1), beta1 (0.9),
-// beta2 (0.95), eps (1e-8), weight_decay (0.1).
+// beta2 (0.95), eps (1e-8), weight_decay (0.1), checkpoint_interval (0).
 //
 // Throws titan::Error naming the field path, e.g. "train.lr", for a missing or
 // unknown key, a wrong type, a non-positive size, lr <= 0, min_lr < 0 or
 // min_lr > lr, a beta outside [0, 1), eps or grad_clip <= 0, weight_decay < 0,
-// val_fraction outside (0, 1), or warmup outside [1, steps).
+// val_fraction outside (0, 1), checkpoint_interval < 0, or warmup outside
+// [1, steps).
 TrainConfig parse_train_config(const io::JsonValue& train_section);
+
+// The "train" section for `c`: every field except `device`, which is not part
+// of the file format. parse_train_config(train_config_to_json(c)) equals `c`
+// with the default device.
+io::JsonValue train_config_to_json(const TrainConfig& c);
 
 struct TrainResult {
     // Loss of the last optimizer step (mean over its micro-batches) and the

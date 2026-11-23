@@ -14,6 +14,8 @@ struct BlockConfig {
     std::int64_t n_heads{}, n_kv_heads{}, mlp_hidden{};
     std::string mlp /*swiglu|gelu*/, norm /*rmsnorm|layernorm*/,
         position /*rope|none*/;
+
+    bool operator==(const BlockConfig&) const = default;
 };
 
 // The architecture of a decoder-only model. final_norm is "rmsnorm" or
@@ -24,6 +26,8 @@ struct ModelConfig {
     bool tied_embeddings = true;
     std::string final_norm = "rmsnorm";
     std::vector<BlockConfig> blocks;
+
+    bool operator==(const ModelConfig&) const = default;
 };
 
 // Parses and validates the "model" section of a config file. Required:
@@ -39,6 +43,12 @@ struct ModelConfig {
 // or an odd head dimension dim / n_heads with RoPE.
 ModelConfig parse_model_config(const io::JsonValue& model_section,
                                std::int64_t vocab_size);
+
+// The "model" section for `c`, with an explicit "blocks" array, so that
+// parse_model_config(model_config_to_json(c), c.vocab_size) == c. vocab_size is
+// not written: it comes from the tokenizer. Floats are written as the doubles
+// they convert to, which the writer prints in the shortest round-trip form.
+io::JsonValue model_config_to_json(const ModelConfig& c);
 
 // A Llama-style model (FR-7): n_layers identical blocks with SwiGLU of hidden
 // size round_up(8·dim/3, 8), RMSNorm, RoPE, an RMSNorm final norm and tied

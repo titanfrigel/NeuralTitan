@@ -10,6 +10,7 @@
 #include "model/config.hpp"
 
 using titan::io::parse_json;
+using titan::model::model_config_to_json;
 using titan::model::ModelConfig;
 using titan::model::parse_model_config;
 
@@ -229,4 +230,28 @@ TITAN_TEST(ModelConfig, LlamaStylePreset) {
         TITAN_EXPECT_EQ(b.norm, std::string("rmsnorm"));
         TITAN_EXPECT_EQ(b.position, std::string("rope"));
     }
+}
+
+TITAN_TEST(ModelConfig, JsonRoundTrip) {
+    // The TinyShakespeare configuration.
+    const ModelConfig tiny =
+        titan::model::llama_style(kVocab, 128, 4, 4, 2, 128);
+    TITAN_EXPECT(parse_model_config(model_config_to_json(tiny), kVocab) ==
+                 tiny);
+
+    // Two different blocks and non-default scalars, through the text form.
+    ModelConfig mixed;
+    mixed.vocab_size = kVocab;
+    mixed.dim = 24;
+    mixed.context_length = 32;
+    mixed.rope_theta = 500000.f;
+    mixed.norm_eps = 1.1920929e-7f;
+    mixed.tied_embeddings = false;
+    mixed.final_norm = "layernorm";
+    mixed.blocks = {
+        {4, 2, 48, "swiglu", "rmsnorm", "rope"},
+        {3, 3, 96, "gelu", "layernorm", "none"},
+    };
+    const std::string text = titan::io::to_json(model_config_to_json(mixed));
+    TITAN_EXPECT(parse_model_config(parse_json(text), kVocab) == mixed);
 }
