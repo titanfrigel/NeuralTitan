@@ -35,3 +35,4 @@ Notes about infrastructure with no gradient, such as tensor memory, replace the 
 | [Transformer block](transformer-block.md) | The pre-norm residual block `h = x + attn(norm1(x))`, `y = h + mlp(norm2(h))`, and how the residual gradient splits into both paths. |
 | [Model](model.md) | The full decoder-only model: the forward chain with shapes, the backward order, weight tying as a sum of two gradients, the GPT-2 initialization and the parameter-count formula. |
 | [AdamW](adamw.md) | AdamW with bias-corrected moments and decoupled weight decay, no decay on rank-1 parameters, global-norm gradient clipping, and the warmup + cosine learning-rate schedule. |
+| [Sampling](sampling.md) | Temperature, top-k and top-p on the last position's logits, why an inverse-CDF draw with one uniform is exact, and the order of operations with its RNG contract. |
