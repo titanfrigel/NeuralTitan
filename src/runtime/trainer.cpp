@@ -3,9 +3,11 @@
 #include <chrono>
 #include <cmath>
 #include <cstddef>
+#include <functional>
 #include <initializer_list>
 #include <iomanip>
 #include <limits>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -151,8 +153,17 @@ std::vector<nn::Parameter*> parameters_on(model::Model& model, Device device) {
 Trainer::Trainer(model::Model& model, TrainConfig config,
                  std::vector<std::int32_t> train_tokens,
                  std::vector<std::int32_t> val_tokens, std::ostream& log)
+    : Trainer(model, config, std::move(train_tokens), std::move(val_tokens),
+              log, std::nullopt) {}
+
+Trainer::Trainer(model::Model& model, TrainConfig config,
+                 std::vector<std::int32_t> train_tokens,
+                 std::vector<std::int32_t> val_tokens, std::ostream& log,
+                 std::optional<TrainerState> resume)
     : model_(model),
       config_(config),
+      train_tokens_(static_cast<std::int64_t>(train_tokens.size())),
+      val_tokens_(static_cast<std::int64_t>(val_tokens.size())),
       train_loader_(std::move(train_tokens), config.batch, config.seq,
                     config.seed),
       val_loader_(std::move(val_tokens), config.batch, config.seq,
@@ -177,6 +188,53 @@ Trainer::Trainer(model::Model& model, TrainConfig config,
                 "Trainer: train.seq " + std::to_string(config.seq) +
                     " exceeds the model context_length " +
                     std::to_string(model.config().context_length));
+    if (resume) {
+        resume_from(*resume);
+    }
+}
+
+void Trainer::resume_from(const TrainerState& s) {
+    const auto changed = [](const char* which, std::int64_t saved,
+                            std::int64_t now) {
+        return std::string("resume: ") + which +
+               " tokens changed (checkpoint " + std::to_string(saved) +
+               ", now " + std::to_string(now) + ")";
+    };
+    TITAN_CHECK(s.train_tokens == train_tokens_,
+                changed("train", s.train_tokens, train_tokens_));
+    TITAN_CHECK(s.val_tokens == val_tokens_,
+                changed("val", s.val_tokens, val_tokens_));
+    TITAN_CHECK(s.step >= 0 && s.step <= config_.steps,
+                "resume: step " + std::to_string(s.step) +
+                    " is outside [0, train.steps " +
+                    std::to_string(config_.steps) + "]");
+    // One optimizer update per trainer step.
+    TITAN_CHECK(s.optimizer.steps == s.step,
+                "resume: optimizer step count " +
+                    std::to_string(s.optimizer.steps) +
+                    " differs from the step " + std::to_string(s.step));
+    // The optimizer was built after the model moved to config.device, so
+    // load_state copies the moments onto that device. A throw from here on
+    // leaves no Trainer behind, so a partial restore is never observed.
+    optimizer_.load_state(s.optimizer);
+    train_loader_.rng().load_state(s.train_rng);
+    val_loader_.rng().load_state(s.val_rng);
+    step_ = s.step;
+}
+
+void Trainer::on_checkpoint(std::function<void(std::int64_t step)> callback) {
+    on_checkpoint_ = std::move(callback);
+}
+
+TrainerState Trainer::state() const {
+    TrainerState s;
+    s.step = step_;
+    s.optimizer = optimizer_.state();
+    s.train_rng = train_loader_.rng().save_state();
+    s.val_rng = val_loader_.rng().save_state();
+    s.train_tokens = train_tokens_;
+    s.val_tokens = val_tokens_;
+    return s;
 }
 
 float Trainer::evaluate() {
@@ -194,7 +252,13 @@ float Trainer::evaluate() {
                               static_cast<double>(config_.eval_batches));
 }
 
-TrainResult Trainer::run() {
+TrainResult Trainer::run(std::optional<std::int64_t> stop_after) {
+    // Without stop_after, a run whose steps are all done runs nothing.
+    const std::int64_t last = stop_after.value_or(config_.steps);
+    TITAN_CHECK(!stop_after || (last > step_ && last <= config_.steps),
+                "Trainer::run: stop_after " + std::to_string(last) +
+                    " must be in [" + std::to_string(step_ + 1) + ", " +
+                    std::to_string(config_.steps) + "]");
     using Clock = std::chrono::steady_clock;
     const std::vector<nn::Parameter*> params = model_.parameters();
     const std::int64_t tokens_per_step =
@@ -207,7 +271,8 @@ TrainResult Trainer::run() {
     auto last_log = start;
     std::int64_t tokens_since_log = 0;
 
-    for (std::int64_t step = 0; step < config_.steps; ++step) {
+    // `step` is 0-based, as the schedule expects; `shown` is 1-based.
+    for (std::int64_t step = step_; step < last; ++step) {
         const std::int64_t shown = step + 1;
         nn::zero_grad(params);
         // The mean over micro-batches of the per-micro-batch mean loss; each
@@ -264,6 +329,12 @@ TrainResult Trainer::run() {
             line << "eval step " << shown << " val_loss " << std::fixed
                  << std::setprecision(4) << result.final_val_loss << "\n";
             log_ << line.str() << std::flush;
+        }
+        step_ = shown;
+        const bool periodic = config_.checkpoint_interval > 0 &&
+                              shown % config_.checkpoint_interval == 0;
+        if (on_checkpoint_ && (periodic || shown == last)) {
+            on_checkpoint_(shown);
         }
     }
     result.seconds =

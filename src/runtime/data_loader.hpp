@@ -33,6 +33,11 @@ public:
     // loaders with different batch sizes the same windows.
     void set_sequential(bool sequential);
 
+    // The generator that draws the offsets, so a checkpoint can save and
+    // restore it (Rng::save_state, Rng::load_state).
+    const Rng& rng() const { return rng_; }
+    Rng& rng() { return rng_; }
+
 private:
     std::vector<std::int32_t> tokens_;
     std::int64_t batch_, seq_;

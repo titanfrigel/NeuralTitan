@@ -198,6 +198,22 @@ data          each tensor's float32 values at its offset (relative to the data
 - `io::read_checkpoint_meta` runs the same file-level and header checks and returns only `meta`, without reading tensor data, so a loader can read a checkpoint's configuration before building a model.
 - The writer writes `<path>.tmp` and renames it over `<path>` only when the file is complete, so an existing checkpoint survives a failed write. It rejects tensors that are not on the CPU.
 
+`runtime::save_checkpoint` and `runtime::load_checkpoint` (`src/runtime/checkpoint.*`) map a training run onto the container, so that one file is enough to resume training or to generate text:
+
+```text
+meta     {"vocab_size": V,
+          "model": <model_config_to_json>, "train": <train_config_to_json>,
+          "tokenizer": <the tokenizer's JSON>,
+          "state": {"step", "optimizer_steps", "train_rng", "val_rng",
+                    "train_tokens", "val_tokens"}}
+tensors  every parameter under its name, in the model's parameter order,
+         then "optim.m.<name>" for each, then "optim.v.<name>" for each
+```
+
+- The meta is validated like a config file: unknown or missing keys, wrong types and malformed generator states fail with the file and the field path, and the `model` and `train` sections go through `parse_model_config` and `parse_train_config`.
+- `load_checkpoint(path, nullptr)` reads only the header, so a caller can build the model from the saved config first. With a model, it requires exactly the model's parameter and moment names with matching shapes, checks them all before it changes the model, and copies the parameters onto the model's current device.
+- A resumed `Trainer` takes the saved `TrainerState`: it moves the model to the training device, builds AdamW there and loads the moments into it, restores both loaders' generators and continues at the step after the saved one, so the result equals the uninterrupted run bit for bit. It refuses token streams whose lengths differ from the saved counts.
+
 ## 7. Architecture decisions
 
 Decisions are recorded as ADRs; see the [decision index](../adr/README.md).

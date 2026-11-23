@@ -1,6 +1,8 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <filesystem>
+#include <optional>
 #include <sstream>
 #include <string>
 #include <vector>
@@ -12,6 +14,7 @@
 #include "io/json.hpp"
 #include "model/config.hpp"
 #include "model/model.hpp"
+#include "runtime/checkpoint.hpp"
 #include "runtime/trainer.hpp"
 #include "support/parity.hpp"
 
@@ -281,4 +284,177 @@ TITAN_TEST(Trainer, CudaSameSeedIsBitReproducible) {
     TITAN_REQUIRE_CUDA();
     expect_identical(seeded_run(titan::Device::CUDA),
                      seeded_run(titan::Device::CUDA));
+}
+
+namespace {
+
+// A config for the checkpoint tests: steps 12, evaluation every 4 steps.
+TrainConfig resume_config(titan::Device device) {
+    TrainConfig c = small_config();
+    c.steps = 12;
+    c.warmup = 2;
+    c.eval_interval = 4;
+    c.log_interval = 4;
+    c.checkpoint_interval = 4;
+    c.device = device;
+    return c;
+}
+
+std::vector<float> all_values(Model& m) {
+    std::vector<float> out;
+    for (const titan::nn::Parameter* p : m.parameters()) {
+        const std::vector<float> v = p->value.to_vector();
+        out.insert(out.end(), v.begin(), v.end());
+    }
+    return out;
+}
+
+// Run A trains 12 steps without a break. Run B stops after step 6, saves a
+// checkpoint from on_checkpoint, and a fresh model and trainer built from it
+// train to 12. Both must agree bit for bit.
+void expect_resume_identical(titan::Device device, const char* file) {
+    const TrainConfig c = resume_config(device);
+    std::ostringstream log;
+
+    SeededOutcome a;
+    {
+        Model m(llama_style(5, 16, 1, 2, 1, 8));
+        Rng init(31);
+        m.init(init);
+        Trainer trainer(m, c, repeating_tokens(400), repeating_tokens(100),
+                        log);
+        a.result = trainer.run();
+        a.values = all_values(m);
+    }
+
+    const auto path = std::filesystem::temp_directory_path() / file;
+    {
+        Model m(llama_style(5, 16, 1, 2, 1, 8));
+        Rng init(31);
+        m.init(init);
+        Trainer trainer(m, c, repeating_tokens(400), repeating_tokens(100),
+                        log);
+        trainer.on_checkpoint([&](std::int64_t) {
+            titan::runtime::Checkpoint ckpt;
+            ckpt.model = m.config();
+            ckpt.train = c;
+            ckpt.tokenizer = titan::io::JsonValue::object();
+            ckpt.state = trainer.state();
+            titan::runtime::save_checkpoint(path, m, ckpt);
+        });
+        trainer.run(6);
+        TITAN_EXPECT_EQ(trainer.state().step, std::int64_t{6});
+    }
+
+    // The resume path of `titan train --resume`: the header gives the model,
+    // the full load fills it, then the trainer moves it to the device.
+    const titan::runtime::Checkpoint header =
+        titan::runtime::load_checkpoint(path, nullptr);
+    Model m(header.model);
+    const titan::runtime::Checkpoint ckpt =
+        titan::runtime::load_checkpoint(path, &m);
+    TITAN_EXPECT_EQ(ckpt.state.step, std::int64_t{6});
+    TrainConfig resumed = ckpt.train;
+    resumed.device = device;
+    Trainer trainer(m, resumed, repeating_tokens(400), repeating_tokens(100),
+                    log, ckpt.state);
+    SeededOutcome b;
+    b.result = trainer.run();
+    b.values = all_values(m);
+    // Only steps 7..12 ran in the resumed trainer.
+    TITAN_EXPECT_EQ(b.result.tokens, std::int64_t{6 * 4 * 8});
+    expect_identical(a, b);
+    std::filesystem::remove(path);
+}
+
+}  // namespace
+
+TITAN_TEST(Trainer, ResumeIsBitIdentical) {
+    expect_resume_identical(titan::Device::CPU, "titan_resume_cpu.tckp");
+    if (titan::cuda_available()) {
+        expect_resume_identical(titan::Device::CUDA, "titan_resume_cuda.tckp");
+    }
+}
+
+TITAN_TEST(Trainer, ResumeRejectsChangedData) {
+    Model m(llama_style(5, 16, 1, 2, 1, 8));
+    Rng init(11);
+    m.init(init);
+    const TrainConfig c = resume_config(titan::Device::CPU);
+    std::ostringstream log;
+    titan::runtime::TrainerState state;
+    {
+        Trainer trainer(m, c, repeating_tokens(400), repeating_tokens(100),
+                        log);
+        trainer.run(2);
+        state = trainer.state();
+    }
+    TITAN_EXPECT_EQ(state.train_tokens, std::int64_t{400});
+    TITAN_EXPECT_EQ(state.val_tokens, std::int64_t{100});
+
+    const auto resume_error = [&](std::size_t train_n, std::size_t val_n) {
+        try {
+            Trainer trainer(m, c, repeating_tokens(train_n),
+                            repeating_tokens(val_n), log, state);
+        } catch (const titan::Error& e) {
+            return std::string(e.what());
+        }
+        return std::string();
+    };
+    TITAN_EXPECT(contains(resume_error(401, 100),
+                          "resume: train tokens changed (checkpoint 400, "
+                          "now 401)"));
+    TITAN_EXPECT(contains(resume_error(400, 99),
+                          "resume: val tokens changed (checkpoint 100, "
+                          "now 99)"));
+    TITAN_EXPECT(resume_error(400, 100).empty());
+}
+
+TITAN_TEST(Trainer, CheckpointCallbackCadence) {
+    Model m(llama_style(5, 16, 1, 2, 1, 8));
+    Rng init(11);
+    m.init(init);
+    TrainConfig c = small_config();
+    c.steps = 10;
+    c.checkpoint_interval = 4;
+    c.warmup = 2;
+    std::ostringstream log;
+    Trainer trainer(m, c, repeating_tokens(400), repeating_tokens(100), log);
+    std::vector<std::int64_t> calls;
+    trainer.on_checkpoint([&](std::int64_t step) {
+        calls.push_back(step);
+        // The callback sees the state after that step.
+        TITAN_EXPECT_EQ(trainer.state().step, step);
+    });
+    trainer.run();
+    TITAN_EXPECT(calls == (std::vector<std::int64_t>{4, 8, 10}));
+}
+
+TITAN_TEST(Trainer, StopAfterFiresCheckpoint) {
+    Model m(llama_style(5, 16, 1, 2, 1, 8));
+    Rng init(11);
+    m.init(init);
+    TrainConfig c = small_config();
+    c.steps = 10;
+    c.checkpoint_interval = 4;
+    c.warmup = 2;
+    std::ostringstream log;
+    Trainer trainer(m, c, repeating_tokens(400), repeating_tokens(100), log);
+    std::vector<std::int64_t> calls;
+    trainer.on_checkpoint([&](std::int64_t step) { calls.push_back(step); });
+    TITAN_EXPECT_THROWS(trainer.run(0), titan::Error);
+    TITAN_EXPECT_THROWS(trainer.run(11), titan::Error);
+
+    // 6 is not a multiple of 4, yet a stopped run always gets a checkpoint.
+    const titan::runtime::TrainResult r = trainer.run(6);
+    TITAN_EXPECT(calls == (std::vector<std::int64_t>{4, 6}));
+    TITAN_EXPECT_EQ(trainer.state().step, std::int64_t{6});
+    TITAN_EXPECT_EQ(r.tokens, std::int64_t{6 * 4 * 8});
+    // Steps already run cannot be a stop point; the rest of the run can.
+    TITAN_EXPECT_THROWS(trainer.run(6), titan::Error);
+    trainer.run();
+    TITAN_EXPECT(calls == (std::vector<std::int64_t>{4, 6, 8, 10}));
+    // A finished run has nothing left to run.
+    TITAN_EXPECT_EQ(trainer.run().tokens, std::int64_t{0});
+    TITAN_EXPECT_EQ(calls.size(), std::size_t{4});
 }

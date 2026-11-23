@@ -60,6 +60,7 @@ target_sources(titan_tests PRIVATE
   runtime/data_loader_test.cpp
   runtime/train_config_test.cpp
   runtime/trainer_test.cpp
+  runtime/checkpoint_test.cpp
   runtime/sampler_test.cpp
 )
 # The CUDA tests call the runtime directly, so they link cudart themselves

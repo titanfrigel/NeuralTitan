@@ -1,4 +1,5 @@
 add_library(titan_runtime STATIC
+  checkpoint.cpp
   data_loader.cpp
   sampler.cpp
   trainer.cpp)

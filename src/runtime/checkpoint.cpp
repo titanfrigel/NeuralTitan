@@ -1,0 +1,206 @@
+#include "runtime/checkpoint.hpp"
+
+#include <cstddef>
+#include <string>
+#include <string_view>
+#include <unordered_map>
+#include <utility>
+#include <vector>
+
+#include "core/error.hpp"
+#include "core/rng.hpp"
+#include "core/tensor.hpp"
+#include "io/checkpoint_file.hpp"
+#include "io/json_fields.hpp"
+#include "nn/module.hpp"
+
+namespace titan::runtime {
+
+namespace {
+
+constexpr std::string_view kMomentM = "optim.m.";
+constexpr std::string_view kMomentV = "optim.v.";
+
+std::string file_context(const std::filesystem::path& path) {
+    return "checkpoint " + path.string();
+}
+
+// The "state" object of the meta, see checkpoint.hpp.
+io::JsonValue state_to_json(const TrainerState& s) {
+    io::JsonValue o = io::JsonValue::object();
+    o.set("step", io::JsonValue::number(static_cast<double>(s.step)));
+    o.set("optimizer_steps",
+          io::JsonValue::number(static_cast<double>(s.optimizer.steps)));
+    o.set("train_rng", io::JsonValue::string(s.train_rng));
+    o.set("val_rng", io::JsonValue::string(s.val_rng));
+    o.set("train_tokens",
+          io::JsonValue::number(static_cast<double>(s.train_tokens)));
+    o.set("val_tokens",
+          io::JsonValue::number(static_cast<double>(s.val_tokens)));
+    return o;
+}
+
+// A generator state string, checked by restoring it into a scratch Rng so a
+// malformed one fails here, naming the field, rather than at resume.
+std::string rng_state(const io::JsonFields& f, std::string_view key) {
+    const io::JsonValue& v = f.require(key);
+    if (!v.is_string()) {
+        f.fail(f.path_of(key),
+               std::string("expected a string, got ") + io::json_kind_name(v));
+    }
+    Rng probe(0);
+    try {
+        probe.load_state(v.as_string());
+    } catch (const Error&) {
+        f.fail(f.path_of(key), "malformed generator state");
+    }
+    return v.as_string();
+}
+
+TrainerState state_from_json(const io::JsonValue& value,
+                             const std::string& context) {
+    const io::JsonFields f(value, context, "meta.state",
+                           {"step", "optimizer_steps", "train_rng", "val_rng",
+                            "train_tokens", "val_tokens"});
+    TrainerState s;
+    s.step = f.integer(f.require("step"), "step", 0);
+    s.optimizer.steps =
+        f.integer(f.require("optimizer_steps"), "optimizer_steps", 0);
+    s.train_rng = rng_state(f, "train_rng");
+    s.val_rng = rng_state(f, "val_rng");
+    s.train_tokens = f.integer(f.require("train_tokens"), "train_tokens", 0);
+    s.val_tokens = f.integer(f.require("val_tokens"), "val_tokens", 0);
+    return s;
+}
+
+// Everything of a checkpoint but the optimizer moments, from the meta object.
+Checkpoint checkpoint_from_meta(const io::JsonValue& meta,
+                                const std::string& context) {
+    const io::JsonFields f(
+        meta, context, "meta",
+        {"vocab_size", "model", "train", "tokenizer", "state"});
+    const std::int64_t vocab_size =
+        f.integer(f.require("vocab_size"), "vocab_size", 1);
+    Checkpoint c;
+    // The section parsers name their own paths ("model.dim", "train.lr");
+    // prefix the file so the message says which checkpoint is at fault.
+    try {
+        c.model = model::parse_model_config(f.require("model"), vocab_size);
+        c.train = parse_train_config(f.require("train"));
+    } catch (const Error& e) {
+        throw_error(__FILE__, __LINE__, context + ": " + e.what());
+    }
+    c.tokenizer = f.require("tokenizer");
+    c.state = state_from_json(f.require("state"), context);
+    return c;
+}
+
+std::string shape_mismatch(const std::string& context, const std::string& name,
+                           const Shape& in_file, const Shape& in_model) {
+    return context + ": tensor " + name + " has shape " + to_string(in_file) +
+           " in the checkpoint but " + to_string(in_model) + " in the model";
+}
+
+}  // namespace
+
+void save_checkpoint(const std::filesystem::path& path, model::Model& model,
+                     const Checkpoint& ckpt) {
+    const std::vector<nn::Parameter*> params = model.parameters();
+    const optim::AdamWState& opt = ckpt.state.optimizer;
+    const std::string context = "save_checkpoint " + path.string();
+    TITAN_CHECK(opt.m.size() == params.size() && opt.v.size() == params.size(),
+                context + ": optimizer state has " +
+                    std::to_string(opt.m.size()) + " first and " +
+                    std::to_string(opt.v.size()) + " second moments for " +
+                    std::to_string(params.size()) + " parameters");
+
+    // The parameters, then every first moment, then every second moment.
+    std::vector<io::NamedTensor> tensors;
+    tensors.reserve(3 * params.size());
+    for (const nn::Parameter* p : params) {
+        tensors.push_back({p->name, p->value.to(Device::CPU)});
+    }
+    for (const auto& [prefix, moments] :
+         {std::pair{kMomentM, &opt.m}, std::pair{kMomentV, &opt.v}}) {
+        for (std::size_t i = 0; i < params.size(); ++i) {
+            const Tensor& t = (*moments)[i];
+            const std::string name = std::string(prefix) + params[i]->name;
+            TITAN_CHECK(t.shape() == params[i]->value.shape(),
+                        shape_mismatch(context, name, t.shape(),
+                                       params[i]->value.shape()));
+            tensors.push_back({name, t.to(Device::CPU)});
+        }
+    }
+
+    io::JsonValue meta = io::JsonValue::object();
+    meta.set("vocab_size",
+             io::JsonValue::number(static_cast<double>(ckpt.model.vocab_size)));
+    meta.set("model", model::model_config_to_json(ckpt.model));
+    meta.set("train", train_config_to_json(ckpt.train));
+    meta.set("tokenizer", ckpt.tokenizer);
+    meta.set("state", state_to_json(ckpt.state));
+    io::write_checkpoint_file(path, meta, tensors);
+}
+
+Checkpoint load_checkpoint(const std::filesystem::path& path,
+                           model::Model* model) {
+    const std::string context = file_context(path);
+    if (model == nullptr) {
+        return checkpoint_from_meta(io::read_checkpoint_meta(path), context);
+    }
+
+    io::CheckpointFile file = io::read_checkpoint_file(path);
+    Checkpoint c = checkpoint_from_meta(file.meta, context);
+
+    // Index the file's tensors by name; the container guarantees unique names.
+    std::unordered_map<std::string, Tensor*> by_name;
+    for (io::NamedTensor& t : file.tensors) {
+        by_name.emplace(t.name, &t.value);
+    }
+    const std::vector<nn::Parameter*> params = model->parameters();
+    const auto take = [&](const std::string& name, const Shape& want) {
+        const auto it = by_name.find(name);
+        TITAN_CHECK(it != by_name.end(), context + ": missing tensor " + name);
+        TITAN_CHECK(it->second->shape() == want,
+                    shape_mismatch(context, name, it->second->shape(), want));
+        Tensor* t = it->second;
+        by_name.erase(it);
+        return t;
+    };
+
+    // Check every tensor before touching the model, so a bad file leaves it
+    // unchanged.
+    std::vector<Tensor*> values, m, v;
+    for (const nn::Parameter* p : params) {
+        values.push_back(take(p->name, p->value.shape()));
+    }
+    for (const nn::Parameter* p : params) {
+        m.push_back(take(std::string(kMomentM) + p->name, p->value.shape()));
+    }
+    for (const nn::Parameter* p : params) {
+        v.push_back(take(std::string(kMomentV) + p->name, p->value.shape()));
+    }
+    if (!by_name.empty()) {
+        // Name the first extra tensor in file order, for a stable message.
+        for (const io::NamedTensor& t : file.tensors) {
+            if (by_name.contains(t.name)) {
+                throw_error(__FILE__, __LINE__,
+                            context + ": unexpected tensor " + t.name +
+                                " (not a parameter of the model or its "
+                                "optimizer state)");
+            }
+        }
+    }
+
+    // Replace each parameter's value in place: the Parameter objects stay, so
+    // a tied head and any optimizer holding them see the new values.
+    const Device device = model->device();
+    for (std::size_t i = 0; i < params.size(); ++i) {
+        params[i]->value = values[i]->to(device);
+        c.state.optimizer.m.push_back(std::move(*m[i]));
+        c.state.optimizer.v.push_back(std::move(*v[i]));
+    }
+    return c;
+}
+
+}  // namespace titan::runtime
