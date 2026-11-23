@@ -261,3 +261,32 @@ TITAN_TEST(Model, UnknownVariantStringsThrow) {
     c.final_norm = "batchnorm";
     TITAN_EXPECT_THROWS(Model{c}, titan::Error);
 }
+
+// parameter_count, computed from the config alone, equals what a built model
+// holds, for every block, norm and head variant.
+TITAN_TEST(Model, ParameterCountMatchesModel) {
+    ModelConfig mixed = llama_style(11, 24, 2, 4, 2, 16);
+    mixed.blocks[1].mlp = "gelu";
+    mixed.blocks[1].mlp_hidden = 40;
+    mixed.blocks[1].norm = "layernorm";
+    mixed.blocks[1].position = "none";
+    mixed.blocks[1].n_kv_heads = 1;
+    mixed.final_norm = "layernorm";
+    mixed.tied_embeddings = false;
+    for (const ModelConfig& c : {llama_style(65, 128, 4, 4, 2, 128),
+                                 llama_style(5, 16, 1, 2, 1, 8), mixed}) {
+        Model m(c);
+        TITAN_EXPECT_EQ(titan::model::parameter_count(c), m.num_parameters());
+    }
+    // The M1 model.
+    TITAN_EXPECT_EQ(
+        titan::model::parameter_count(llama_style(65, 128, 4, 4, 2, 128)),
+        std::int64_t{734464});
+}
+
+TITAN_TEST(Model, ParameterCountRejectsOverflow) {
+    // dim 2^40: dim·dim alone is 2^80. Nothing is allocated.
+    ModelConfig huge = llama_style(5, 16, 1, 2, 1, 8);
+    huge.dim = std::int64_t{1} << 40;
+    TITAN_EXPECT_THROWS(titan::model::parameter_count(huge), titan::Error);
+}

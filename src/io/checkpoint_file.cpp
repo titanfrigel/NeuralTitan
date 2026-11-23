@@ -365,4 +365,15 @@ JsonValue read_checkpoint_meta(const std::filesystem::path& path) {
     return parse_container(path, in).meta;
 }
 
+CheckpointHeader read_checkpoint_header(const std::filesystem::path& path) {
+    std::ifstream in;
+    Parsed parsed = parse_container(path, in);
+    CheckpointHeader header;
+    header.meta = std::move(parsed.meta);
+    for (Entry& e : parsed.entries) {
+        header.tensors.push_back({std::move(e.name), std::move(e.shape)});
+    }
+    return header;
+}
+
 }  // namespace titan::io

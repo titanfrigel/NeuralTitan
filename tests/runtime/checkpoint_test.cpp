@@ -254,6 +254,31 @@ TITAN_TEST(RuntimeCheckpoint, TokenizerMustMatchVocab) {
     TITAN_EXPECT(contains(malformed, "meta.tokenizer"));
 }
 
+TITAN_TEST(RuntimeCheckpoint, HeaderBoundsModelSize) {
+    // A small, valid file whose meta claims a far larger model: the
+    // header-only load, which runs before anyone builds the model, must refuse
+    // it from the config and the entry sizes alone.
+    Model m(llama_style(5, 16, 1, 2, 1, 8));
+    const auto p = temp_path("titan_rt_ckpt_huge.tckp");
+    save_checkpoint(p, m, sample_checkpoint(m));
+    const titan::io::CheckpointFile good = titan::io::read_checkpoint_file(p);
+    TITAN_EXPECT(load_error(p, nullptr).empty());
+
+    for (const double dim : {1048576.0, 1099511627776.0}) {
+        JsonValue meta = good.meta;
+        JsonValue model = meta.at("model");
+        model.set("dim", JsonValue::number(dim));
+        meta.set("model", model);
+        titan::io::write_checkpoint_file(p, meta, good.tensors);
+        const std::string message = load_error(p, nullptr);
+        TITAN_EXPECT(contains(message, p.string()));
+        TITAN_EXPECT(contains(message, "the file holds"));
+    }
+    // dim 2^20: about 2^41 parameters, counted exactly.
+    TITAN_EXPECT(contains(load_error(p, nullptr), "the model config implies"));
+    std::filesystem::remove(p);
+}
+
 TITAN_TEST(RuntimeCheckpoint, RejectsMissingTensor) {
     Model m(llama_style(5, 16, 1, 2, 1, 8));
     const auto p = temp_path("titan_rt_ckpt_missing.tckp");

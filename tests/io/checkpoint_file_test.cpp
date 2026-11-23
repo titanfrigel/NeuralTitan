@@ -170,6 +170,27 @@ TITAN_TEST(Checkpoint, ReadMetaReturnsMeta) {
     std::filesystem::remove(p);
 }
 
+TITAN_TEST(Checkpoint, ReadHeaderListsEntries) {
+    const auto p = temp_path("titan_ckpt_header.tckp");
+    std::string bytes = write_sample(p);
+    const titan::io::CheckpointHeader header =
+        titan::io::read_checkpoint_header(p);
+    const auto expected = sample_tensors();
+    TITAN_EXPECT_EQ(titan::io::to_json(header.meta, 0),
+                    titan::io::to_json(sample_meta(), 0));
+    TITAN_EXPECT_EQ(header.tensors.size(), expected.size());
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+        TITAN_EXPECT_EQ(header.tensors[i].name, expected[i].name);
+        TITAN_EXPECT(header.tensors[i].shape == expected[i].value.shape());
+    }
+    // The same checks as every reader.
+    bytes[30] = static_cast<char>(bytes[30] ^ 0x01);
+    titan::io::write_file(p, bytes);
+    TITAN_EXPECT(throws_containing(
+        [&] { titan::io::read_checkpoint_header(p); }, "header checksum"));
+    std::filesystem::remove(p);
+}
+
 TITAN_TEST(Checkpoint, ReadMetaRejectsHeaderChecksum) {
     const auto p = temp_path("titan_ckpt_meta_bad.tckp");
     std::string bytes = write_sample(p);

@@ -55,4 +55,22 @@ CheckpointFile read_checkpoint_file(const std::filesystem::path& path);
 // returns only the `meta` object, without reading any tensor data.
 JsonValue read_checkpoint_meta(const std::filesystem::path& path);
 
+// A tensor entry of the header: its name and shape, checked against the file
+// size like every entry.
+struct TensorInfo {
+    std::string name;
+    Shape shape;
+};
+
+struct CheckpointHeader {
+    JsonValue meta;
+    std::vector<TensorInfo> tensors;
+};
+
+// Like read_checkpoint_meta, but also returns every tensor entry, so a loader
+// can compare the sizes a config implies with what the file holds before it
+// allocates anything. The entries' element counts sum to at most the file
+// size / 4.
+CheckpointHeader read_checkpoint_header(const std::filesystem::path& path);
+
 }  // namespace titan::io

@@ -54,9 +54,13 @@ void save_checkpoint(const std::filesystem::path& path, model::Model& model,
 // replaced in place, so a Trainer or an optimizer that holds them stays
 // valid.
 //
-// With nullptr, reads only the header (io::read_checkpoint_meta), so the
-// caller can build the model from Checkpoint::model first;
-// state.optimizer.m and .v are then empty.
+// With nullptr, reads only the header (io::read_checkpoint_header), so the
+// caller can build the model from Checkpoint::model first. Before returning
+// it bounds that config by the file: model::parameter_count(model) times
+// three (the parameters and both moments) must equal the values the file's
+// tensor entries hold, else titan::Error names the file and both counts. A
+// header that claims a huge model therefore fails before any allocation.
+// The result's state.optimizer.m and .v are empty.
 Checkpoint load_checkpoint(const std::filesystem::path& path,
                            model::Model* model);
 

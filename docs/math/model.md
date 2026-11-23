@@ -56,6 +56,7 @@ The head adds the first term into `embed_tokens.weight`'s `Parameter::grad` in s
 - `forward` and `backward` are steps 1-4 of each section above; `init` follows the initialization list, recognizing the residual projections by name.
 - Loss: `nn::CrossEntropyLoss` in `src/nn/loss.hpp` produces `dlogits` for `backward`. The optimizer is not part of the model layer.
 - Tests: `tests/model/model_test.cpp` checks the parameter count above, that a tied table is listed once and an untied head adds `V·dim`, the init standard deviations for Llama-style and GPT-style blocks (including `proj` scaling and zero biases), a finite-difference gradient check of the loss with respect to `embed_tokens.weight` (both tied uses), `blocks.0.attn.q_proj.weight` and `blocks.0.mlp.down_proj.weight`, that AdamW overfits one fixed batch to a loss below 0.05 within 300 steps (NFR-3), the sequence-length checks and the rejection of unknown variant strings.
+- `model::parameter_count` in `src/model/config.hpp` computes the same count from a `ModelConfig` alone, without building the model, so the checkpoint loader can bound a config read from a file before allocating. It throws once the count passes 2⁶⁰. `Model.ParameterCountMatchesModel` checks it against `num_parameters()` for Llama-style blocks and for a mix of GELU, LayerNorm, no RoPE and an untied head; `Model.ParameterCountRejectsOverflow` uses dim 2⁴⁰.
 
 ## Device
 

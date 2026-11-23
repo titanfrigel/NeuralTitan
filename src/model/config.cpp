@@ -189,4 +189,52 @@ ModelConfig llama_style(std::int64_t vocab, std::int64_t dim,
     return c;
 }
 
+namespace {
+
+// a·b and a + b for non-negative counts, throwing once a result would pass
+// kMaxParameters (so nothing here can overflow).
+std::int64_t count_mul(std::int64_t a, std::int64_t b) {
+    TITAN_CHECK(b == 0 || a <= kMaxParameters / b,
+                "the model config implies more than 2^60 parameters");
+    return a * b;
+}
+
+std::int64_t count_add(std::int64_t a, std::int64_t b) {
+    TITAN_CHECK(a <= kMaxParameters - b,
+                "the model config implies more than 2^60 parameters");
+    return a + b;
+}
+
+// One norm's values: a weight, plus a bias for LayerNorm.
+std::int64_t norm_count(const std::string& norm, std::int64_t dim) {
+    return norm == "layernorm" ? count_mul(2, dim) : dim;
+}
+
+}  // namespace
+
+std::int64_t parameter_count(const ModelConfig& c) {
+    const std::int64_t d = c.dim;
+    const std::int64_t embedding = count_mul(c.vocab_size, d);
+    std::int64_t n = embedding;
+    for (const BlockConfig& b : c.blocks) {
+        const std::int64_t head_dim = d / b.n_heads;
+        const std::int64_t kv_dim = count_mul(b.n_kv_heads, head_dim);
+        // q_proj and o_proj (dim x n_heads·head_dim = dim x dim), k_proj and
+        // v_proj (dim x n_kv_heads·head_dim), all without bias.
+        const std::int64_t attention = count_add(
+            count_mul(2, count_mul(d, d)), count_mul(2, count_mul(d, kv_dim)));
+        const std::int64_t mlp =
+            b.mlp == "swiglu"
+                ? count_mul(3, count_mul(d, b.mlp_hidden))
+                : count_add(count_mul(2, count_mul(d, b.mlp_hidden)),
+                            count_add(b.mlp_hidden, d));
+        n = count_add(n, count_mul(2, norm_count(b.norm, d)));
+        n = count_add(n, attention);
+        n = count_add(n, mlp);
+    }
+    n = count_add(n, norm_count(c.final_norm, d));
+    if (!c.tied_embeddings) n = count_add(n, embedding);
+    return n;
+}
+
 }  // namespace titan::model

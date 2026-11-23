@@ -171,6 +171,36 @@ void check_same_config(const model::ModelConfig& in_file,
                     " in the checkpoint but " + d.in_model + " in the model");
 }
 
+// Bounds the saved model config by the file before anyone builds a model
+// from it: the parameters it implies, times three for the two AdamW moments,
+// must equal the values the file's tensor entries hold. The entries are
+// already bounded by the file size, so a config that claims a huge model
+// fails here instead of in an allocation.
+void check_sizes(const model::ModelConfig& config,
+                 const std::vector<io::TensorInfo>& tensors,
+                 const std::string& context) {
+    std::int64_t stored = 0;
+    for (const io::TensorInfo& t : tensors) {
+        std::int64_t n = 1;
+        for (const std::int64_t dim : t.shape) n *= dim;
+        stored += n;
+    }
+    std::int64_t params = 0;
+    try {
+        params = model::parameter_count(config);
+    } catch (const Error& e) {
+        throw_error(__FILE__, __LINE__,
+                    context + ": " + e.what() + ", but the file holds " +
+                        std::to_string(stored) + " values");
+    }
+    TITAN_CHECK(3 * params == stored,
+                context + ": the model config implies " +
+                    std::to_string(params) + " parameters (" +
+                    std::to_string(3 * params) +
+                    " values with the optimizer moments), but the file holds " +
+                    std::to_string(stored) + " values");
+}
+
 std::string shape_mismatch(const std::string& context, const std::string& name,
                            const Shape& in_file, const Shape& in_model) {
     return context + ": tensor " + name + " has shape " + to_string(in_file) +
@@ -222,7 +252,10 @@ Checkpoint load_checkpoint(const std::filesystem::path& path,
                            model::Model* model) {
     const std::string context = file_context(path);
     if (model == nullptr) {
-        return checkpoint_from_meta(io::read_checkpoint_meta(path), context);
+        const io::CheckpointHeader header = io::read_checkpoint_header(path);
+        Checkpoint c = checkpoint_from_meta(header.meta, context);
+        check_sizes(c.model, header.tensors, context);
+        return c;
     }
 
     io::CheckpointFile file = io::read_checkpoint_file(path);

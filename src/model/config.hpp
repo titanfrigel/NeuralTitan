@@ -58,4 +58,19 @@ ModelConfig llama_style(std::int64_t vocab, std::int64_t dim,
                         std::int64_t n_layers, std::int64_t n_heads,
                         std::int64_t n_kv_heads, std::int64_t context);
 
+// The most parameters parameter_count accepts: three times as many values (a
+// model and its two AdamW moments) still fit in an int64 with room to spare.
+inline constexpr std::int64_t kMaxParameters = std::int64_t{1} << 60;
+
+// The number of parameter values a Model built from `c` holds (equal to
+// Model(c).num_parameters()), computed from the config alone, without
+// allocating anything, so a loader can bound a config read from a file before
+// building the model. Per block: two norms (dim values each, twice that for
+// LayerNorm with its bias), q and o projections of dim·dim, k and v of
+// dim·n_kv_heads·head_dim, and the MLP (SwiGLU: 3·dim·hidden; GELU:
+// 2·dim·hidden + hidden + dim for the biases). Plus the embedding V·dim, the
+// final norm, and an untied head V·dim. Throws titan::Error when the count
+// exceeds kMaxParameters.
+std::int64_t parameter_count(const ModelConfig& c);
+
 }  // namespace titan::model
