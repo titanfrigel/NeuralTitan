@@ -23,4 +23,16 @@ Tensor repeat_kv(const Tensor& x, std::int64_t n_rep);
 // n_rep >= 1 dividing H. Sums accumulate in double.
 Tensor repeat_kv_backward(const Tensor& dy, std::int64_t n_rep);
 
+// KV-cache layout, inference only (no backward pass). A cache is a
+// (B, H, Tmax, hd) tensor whose rows 0..len-1 hold the keys or values of the
+// positions seen so far.
+
+// Writes x (B, H, T, hd) into rows pos..pos+T-1 of cache (B, H, Tmax, hd):
+// cache[:, :, pos:pos+T, :] = x. Mutates cache in place and leaves all other
+// rows untouched. Requires matching B, H and hd, pos >= 0 and pos + T <= Tmax.
+void kv_write(Tensor& cache, const Tensor& x, std::int64_t pos);
+// Returns a new (B, H, len, hd) tensor holding cache[:, :, 0:len, :].
+// Requires 1 <= len <= Tmax.
+Tensor kv_read(const Tensor& cache, std::int64_t len);
+
 }  // namespace titan::ops

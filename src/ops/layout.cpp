@@ -53,4 +53,35 @@ Tensor repeat_kv_backward(const Tensor& dy, std::int64_t n_rep) {
                                     : cpu::repeat_kv_backward(dy, n_rep);
 }
 
+void kv_write(Tensor& cache, const Tensor& x, std::int64_t pos) {
+    const Backend backend = detail::route("kv_write", {&cache, &x});
+    require_rank4("kv_write", cache);
+    require_rank4("kv_write", x);
+    TITAN_CHECK(cache.dim(0) == x.dim(0) && cache.dim(1) == x.dim(1) &&
+                    cache.dim(3) == x.dim(3),
+                "ops::kv_write: batch, head and head-dim sizes of cache " +
+                    to_string(cache.shape()) + " and x " +
+                    to_string(x.shape()) + " differ");
+    TITAN_CHECK(pos >= 0 && pos + x.dim(2) <= cache.dim(2),
+                "ops::kv_write: rows " + std::to_string(pos) + ".." +
+                    std::to_string(pos + x.dim(2)) + " do not fit the cache " +
+                    to_string(cache.shape()));
+    if (backend == Backend::cuda) {
+        cuda::kv_write(cache, x, pos);
+    } else {
+        cpu::kv_write(cache, x, pos);
+    }
+}
+
+Tensor kv_read(const Tensor& cache, std::int64_t len) {
+    const Backend backend = detail::route("kv_read", {&cache});
+    require_rank4("kv_read", cache);
+    TITAN_CHECK(len >= 1 && len <= cache.dim(2),
+                "ops::kv_read: len " + std::to_string(len) + " is outside 1.." +
+                    std::to_string(cache.dim(2)) + " for the cache " +
+                    to_string(cache.shape()));
+    return backend == Backend::cuda ? cuda::kv_read(cache, len)
+                                    : cpu::kv_read(cache, len);
+}
+
 }  // namespace titan::ops

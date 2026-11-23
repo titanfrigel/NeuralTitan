@@ -57,3 +57,20 @@ TITAN_TEST(RopeParity, Backward) {
         }
     }
 }
+
+// Generation positions far into a long context. The angles p·θ^(-2i/hd) are
+// computed in double on both devices, so a large offset must not cost accuracy.
+TITAN_TEST(RopeParity, LargePosOffset) {
+    TITAN_REQUIRE_CUDA();
+    for (const Shape& s : parity_shapes()) {
+        const Tensor x = random_tensor(s, 3);
+        TITAN_EXPECT_PARITY(ops::rope(x, 4096, kTheta),
+                            ops::rope(x.to(Device::CUDA), 4096, kTheta),
+                            kParityAtol, kParityRtol);
+        const Tensor dy = random_tensor(s, 4);
+        TITAN_EXPECT_PARITY(
+            ops::rope_backward(dy, 4096, kTheta),
+            ops::rope_backward(dy.to(Device::CUDA), 4096, kTheta), kParityAtol,
+            kParityRtol);
+    }
+}

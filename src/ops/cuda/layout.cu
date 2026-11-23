@@ -59,6 +59,31 @@ __global__ void repeat_kv_backward_kernel(const float* dy, float* dx,
     }
 }
 
+// cache[b, h, pos + t, d] = x[b, h, t, d]. One thread per element of x; the
+// index o is decoded as (bh, t, d) with bh the flat (batch, head) index.
+__global__ void kv_write_kernel(const float* x, float* cache, std::int64_t n,
+                                std::int64_t t, std::int64_t t_max,
+                                std::int64_t hd, std::int64_t pos) {
+    for (std::int64_t o = global_thread_index(); o < n; o += grid_stride()) {
+        const std::int64_t d = o % hd;
+        const std::int64_t row = (o / hd) % t;
+        const std::int64_t bh = o / (hd * t);
+        cache[(bh * t_max + pos + row) * hd + d] = x[o];
+    }
+}
+
+// y[b, h, t, d] = cache[b, h, t, d] for t < len. One thread per element of y.
+__global__ void kv_read_kernel(const float* cache, float* y, std::int64_t n,
+                               std::int64_t len, std::int64_t t_max,
+                               std::int64_t hd) {
+    for (std::int64_t o = global_thread_index(); o < n; o += grid_stride()) {
+        const std::int64_t d = o % hd;
+        const std::int64_t row = (o / hd) % len;
+        const std::int64_t bh = o / (hd * len);
+        y[o] = cache[(bh * t_max + row) * hd + d];
+    }
+}
+
 }  // namespace
 
 Tensor swap_dims_1_2(const Tensor& x) {
@@ -90,6 +115,23 @@ Tensor repeat_kv_backward(const Tensor& dy, std::int64_t n_rep) {
         dy.data(), dx.data(), n, dy.dim(2) * dy.dim(3), n_rep);
     check_launch();
     return dx;
+}
+
+void kv_write(Tensor& cache, const Tensor& x, std::int64_t pos) {
+    const std::int64_t n = x.numel();
+    kv_write_kernel<<<grid_for(n, kBlock), kBlock>>>(
+        x.data(), cache.data(), n, x.dim(2), cache.dim(2), x.dim(3), pos);
+    check_launch();
+}
+
+Tensor kv_read(const Tensor& cache, std::int64_t len) {
+    Tensor y = Tensor::empty({cache.dim(0), cache.dim(1), len, cache.dim(3)},
+                             cache.device());
+    const std::int64_t n = y.numel();
+    kv_read_kernel<<<grid_for(n, kBlock), kBlock>>>(
+        cache.data(), y.data(), n, len, cache.dim(2), cache.dim(3));
+    check_launch();
+    return y;
 }
 
 }  // namespace titan::ops::cuda
