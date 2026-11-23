@@ -95,6 +95,65 @@ Checkpoint checkpoint_from_meta(const io::JsonValue& meta,
     return c;
 }
 
+// Where two JSON values first differ: the dotted path below `path` and both
+// values as compact JSON, or an empty path when they are equal.
+struct Difference {
+    std::string path, in_file, in_model;
+};
+
+Difference first_difference(const io::JsonValue& a, const io::JsonValue& b,
+                            const std::string& path) {
+    if (a.is_object() && b.is_object()) {
+        for (const auto& [key, va] : a.as_object()) {
+            const io::JsonValue* vb = b.find(key);
+            if (vb == nullptr)
+                return {path + "." + key, io::to_json(va, 0), "absent"};
+            Difference d = first_difference(va, *vb, path + "." + key);
+            if (!d.path.empty()) return d;
+        }
+        for (const auto& [key, vb] : b.as_object()) {
+            if (a.find(key) == nullptr) {
+                return {path + "." + key, "absent", io::to_json(vb, 0)};
+            }
+        }
+        return {};
+    }
+    if (a.is_array() && b.is_array() &&
+        a.as_array().size() == b.as_array().size()) {
+        for (std::size_t i = 0; i < a.as_array().size(); ++i) {
+            Difference d =
+                first_difference(a.as_array()[i], b.as_array()[i],
+                                 path + "[" + std::to_string(i) + "]");
+            if (!d.path.empty()) return d;
+        }
+        return {};
+    }
+    const std::string ta = io::to_json(a, 0), tb = io::to_json(b, 0);
+    if (ta == tb) return {};
+    return {path, ta, tb};
+}
+
+// Throws unless the checkpoint's model config equals the model's, naming the
+// first field that differs.
+void check_same_config(const model::ModelConfig& in_file,
+                       const model::ModelConfig& in_model,
+                       const std::string& context) {
+    if (in_file == in_model) return;
+    TITAN_CHECK(in_file.vocab_size == in_model.vocab_size,
+                context + ": meta.vocab_size is " +
+                    std::to_string(in_file.vocab_size) +
+                    " in the checkpoint but " +
+                    std::to_string(in_model.vocab_size) + " in the model");
+    const Difference d =
+        first_difference(model::model_config_to_json(in_file),
+                         model::model_config_to_json(in_model), "model");
+    TITAN_CHECK(!d.path.empty(),
+                context + ": the model config differs from the model's");
+    throw_error(__FILE__, __LINE__,
+                context + ": " + d.path + " is " + d.in_file +
+                    " in the checkpoint but " + d.in_model + " in the model");
+}
+
 std::string shape_mismatch(const std::string& context, const std::string& name,
                            const Shape& in_file, const Shape& in_model) {
     return context + ": tensor " + name + " has shape " + to_string(in_file) +
@@ -191,6 +250,10 @@ Checkpoint load_checkpoint(const std::filesystem::path& path,
             }
         }
     }
+
+    // Shapes match, but settings without a tensor of their own (rope_theta,
+    // norm_eps, the norm or MLP kind of equal size) must match too.
+    check_same_config(c.model, model->config(), context);
 
     // Replace each parameter's value in place: the Parameter objects stay, so
     // a tied head and any optimizer holding them see the new values.

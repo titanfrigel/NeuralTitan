@@ -196,6 +196,28 @@ TITAN_TEST(RuntimeCheckpoint, RejectsShapeMismatch) {
     std::filesystem::remove(p);
 }
 
+TITAN_TEST(RuntimeCheckpoint, RejectsConfigMismatch) {
+    // Same tensor shapes, different RoPE base: only the config check sees it.
+    titan::model::ModelConfig saved_config = llama_style(5, 16, 1, 2, 1, 8);
+    Model saved(saved_config);
+    const auto p = temp_path("titan_rt_ckpt_config.tckp");
+    save_checkpoint(p, saved, sample_checkpoint(saved));
+
+    titan::model::ModelConfig other = saved_config;
+    other.rope_theta = 500000.0f;
+    Model target(other);
+    Rng init(8);
+    target.init(init);
+    const std::vector<float> before = logits_of(target).to_vector();
+    const std::string message = load_error(p, &target);
+    TITAN_EXPECT(contains(message, p.string()));
+    TITAN_EXPECT(contains(message,
+                          "model.rope_theta is 10000 in the "
+                          "checkpoint but 500000 in the model"));
+    TITAN_EXPECT(logits_of(target).to_vector() == before);
+    std::filesystem::remove(p);
+}
+
 TITAN_TEST(RuntimeCheckpoint, RejectsMissingTensor) {
     Model m(llama_style(5, 16, 1, 2, 1, 8));
     const auto p = temp_path("titan_rt_ckpt_missing.tckp");

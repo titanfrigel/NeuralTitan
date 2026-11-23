@@ -47,7 +47,9 @@ void save_checkpoint(const std::filesystem::path& path, model::Model& model,
 // model's current device, and fills state.optimizer.m and .v (on the CPU, in
 // the model's parameter order). It throws titan::Error naming the file and
 // the tensor for a missing tensor, an extra tensor, or a shape mismatch (with
-// both shapes); the model is unchanged then. The model's parameters are
+// both shapes), and naming the file and the field (e.g. "model.rope_theta")
+// when the saved model config differs from model->config(); the model is
+// unchanged then. The model's parameters are
 // replaced in place, so a Trainer or an optimizer that holds them stays
 // valid.
 //
