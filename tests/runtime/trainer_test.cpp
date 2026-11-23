@@ -5,6 +5,7 @@
 #include <string>
 #include <vector>
 
+#include "core/device.hpp"
 #include "core/error.hpp"
 #include "core/rng.hpp"
 #include "harness/test.hpp"
@@ -12,6 +13,7 @@
 #include "model/config.hpp"
 #include "model/model.hpp"
 #include "runtime/trainer.hpp"
+#include "support/parity.hpp"
 
 using titan::Rng;
 using titan::model::llama_style;
@@ -222,41 +224,61 @@ TITAN_TEST(Trainer, GradAccumEquivalence) {
     TITAN_EXPECT(max_grad > 1e-3);
 }
 
-TITAN_TEST(Trainer, SameSeedIsBitReproducible) {
-    // The same seed and config must give the same run, bit for bit: init,
-    // data order and every optimizer step are deterministic.
-    struct Outcome {
-        titan::runtime::TrainResult result;
-        std::vector<float> values;
-    };
-    const auto run = [] {
-        Model m(llama_style(5, 16, 1, 2, 1, 8));
-        Rng init(31);
-        m.init(init);
-        TrainConfig c = small_config();
-        c.steps = 20;
-        c.warmup = 2;
-        c.eval_interval = 10;
-        c.log_interval = 10;
-        std::ostringstream log;
-        Trainer trainer(m, c, repeating_tokens(400), repeating_tokens(100),
-                        log);
-        Outcome out;
-        out.result = trainer.run();
-        for (const titan::nn::Parameter* p : m.parameters()) {
-            const std::vector<float> v = p->value.to_vector();
-            out.values.insert(out.values.end(), v.begin(), v.end());
-        }
-        return out;
-    };
-    const Outcome a = run();
-    const Outcome b = run();
+namespace {
+
+struct SeededOutcome {
+    titan::runtime::TrainResult result;
+    std::vector<float> values;
+};
+
+// A short seeded run on `device`; returns the result and every parameter.
+SeededOutcome seeded_run(titan::Device device) {
+    Model m(llama_style(5, 16, 1, 2, 1, 8));
+    Rng init(31);
+    m.init(init);
+    TrainConfig c = small_config();
+    c.steps = 20;
+    c.warmup = 2;
+    c.eval_interval = 10;
+    c.log_interval = 10;
+    c.device = device;
+    std::ostringstream log;
+    Trainer trainer(m, c, repeating_tokens(400), repeating_tokens(100), log);
+    TITAN_EXPECT(m.device() == device);
+    SeededOutcome out;
+    out.result = trainer.run();
+    for (const titan::nn::Parameter* p : m.parameters()) {
+        const std::vector<float> v = p->value.to_vector();
+        out.values.insert(out.values.end(), v.begin(), v.end());
+    }
+    return out;
+}
+
+// Records a failure unless the two runs agree bit for bit.
+void expect_identical(const SeededOutcome& a, const SeededOutcome& b) {
     TITAN_EXPECT(a.result.final_train_loss == b.result.final_train_loss);
     TITAN_EXPECT(a.result.final_val_loss == b.result.final_val_loss);
     TITAN_EXPECT_EQ(a.values.size(), b.values.size());
-    bool identical = true;
-    for (std::size_t i = 0; i < a.values.size(); ++i) {
-        identical = identical && a.values[i] == b.values[i];
+    bool identical = a.values.size() == b.values.size();
+    for (std::size_t i = 0; identical && i < a.values.size(); ++i) {
+        identical = a.values[i] == b.values[i];
     }
     TITAN_EXPECT(identical);
+}
+
+}  // namespace
+
+TITAN_TEST(Trainer, SameSeedIsBitReproducible) {
+    // The same seed and config must give the same run, bit for bit: init,
+    // data order and every optimizer step are deterministic.
+    expect_identical(seeded_run(titan::Device::CPU),
+                     seeded_run(titan::Device::CPU));
+}
+
+TITAN_TEST(Trainer, CudaSameSeedIsBitReproducible) {
+    // The same on the GPU: the kernels use fixed reduction orders and no
+    // float atomics, so two runs on the same GPU agree bit for bit.
+    TITAN_REQUIRE_CUDA();
+    expect_identical(seeded_run(titan::Device::CUDA),
+                     seeded_run(titan::Device::CUDA));
 }

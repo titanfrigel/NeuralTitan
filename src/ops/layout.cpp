@@ -3,9 +3,12 @@
 #include <string>
 
 #include "ops/cpu/layout.hpp"
+#include "ops/cuda/layout.hpp"
 #include "ops/detail.hpp"
 
 namespace titan::ops {
+
+using detail::Backend;
 
 namespace {
 
@@ -24,27 +27,30 @@ void require_n_rep(const char* op, std::int64_t n_rep) {
 }  // namespace
 
 Tensor swap_dims_1_2(const Tensor& x) {
-    detail::require_cpu("swap_dims_1_2", {&x});
+    const Backend backend = detail::route("swap_dims_1_2", {&x});
     require_rank4("swap_dims_1_2", x);
-    return cpu::swap_dims_1_2(x);
+    return backend == Backend::cuda ? cuda::swap_dims_1_2(x)
+                                    : cpu::swap_dims_1_2(x);
 }
 
 Tensor repeat_kv(const Tensor& x, std::int64_t n_rep) {
-    detail::require_cpu("repeat_kv", {&x});
+    const Backend backend = detail::route("repeat_kv", {&x});
     require_rank4("repeat_kv", x);
     require_n_rep("repeat_kv", n_rep);
-    return cpu::repeat_kv(x, n_rep);
+    return backend == Backend::cuda ? cuda::repeat_kv(x, n_rep)
+                                    : cpu::repeat_kv(x, n_rep);
 }
 
 Tensor repeat_kv_backward(const Tensor& dy, std::int64_t n_rep) {
-    detail::require_cpu("repeat_kv_backward", {&dy});
+    const Backend backend = detail::route("repeat_kv_backward", {&dy});
     require_rank4("repeat_kv_backward", dy);
     require_n_rep("repeat_kv_backward", n_rep);
     TITAN_CHECK(dy.dim(1) % n_rep == 0,
                 "ops::repeat_kv_backward: head count of " +
                     to_string(dy.shape()) + " is not divisible by n_rep " +
                     std::to_string(n_rep));
-    return cpu::repeat_kv_backward(dy, n_rep);
+    return backend == Backend::cuda ? cuda::repeat_kv_backward(dy, n_rep)
+                                    : cpu::repeat_kv_backward(dy, n_rep);
 }
 
 }  // namespace titan::ops

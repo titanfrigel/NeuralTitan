@@ -106,6 +106,13 @@ std::string format_lr(float lr) {
     return s;
 }
 
+// Moves the model to `device` and returns its parameters, so that the
+// optimizer, constructed from them, creates its moments on that device.
+std::vector<nn::Parameter*> parameters_on(model::Model& model, Device device) {
+    model.to(device);
+    return model.parameters();
+}
+
 }  // namespace
 
 Trainer::Trainer(model::Model& model, TrainConfig config,
@@ -118,7 +125,7 @@ Trainer::Trainer(model::Model& model, TrainConfig config,
       val_loader_(std::move(val_tokens), config.batch, config.seq,
                   config.seed + 1),
       log_(log),
-      optimizer_(model.parameters(),
+      optimizer_(parameters_on(model, config.device),
                  optim::AdamWConfig{config.lr, config.beta1, config.beta2,
                                     config.eps, config.weight_decay}) {
     TITAN_CHECK(config.grad_accum >= 1,

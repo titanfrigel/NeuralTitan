@@ -3,17 +3,20 @@
 #include <string>
 
 #include "ops/cpu/softmax.hpp"
+#include "ops/cuda/softmax.hpp"
 #include "ops/detail.hpp"
 
 namespace titan::ops {
 
+using detail::Backend;
+
 Tensor softmax(const Tensor& x) {
-    detail::require_cpu("softmax", {&x});
-    return cpu::softmax(x);
+    const Backend backend = detail::route("softmax", {&x});
+    return backend == Backend::cuda ? cuda::softmax(x) : cpu::softmax(x);
 }
 
 Tensor causal_softmax(const Tensor& scores, std::int64_t pos_offset) {
-    detail::require_cpu("causal_softmax", {&scores});
+    const Backend backend = detail::route("causal_softmax", {&scores});
     TITAN_CHECK(scores.rank() >= 2,
                 "ops::causal_softmax: scores must have rank >= 2, got " +
                     to_string(scores.shape()));
@@ -26,13 +29,15 @@ Tensor causal_softmax(const Tensor& scores, std::int64_t pos_offset) {
                 "ops::causal_softmax: need Tk >= Tq + pos_offset, got shape " +
                     to_string(scores.shape()) + " with pos_offset " +
                     std::to_string(pos_offset));
-    return cpu::causal_softmax(scores, pos_offset);
+    return backend == Backend::cuda ? cuda::causal_softmax(scores, pos_offset)
+                                    : cpu::causal_softmax(scores, pos_offset);
 }
 
 Tensor softmax_backward(const Tensor& y, const Tensor& dy) {
-    detail::require_cpu("softmax_backward", {&y, &dy});
+    const Backend backend = detail::route("softmax_backward", {&y, &dy});
     detail::require_same_shape("softmax_backward", y, dy);
-    return cpu::softmax_backward(y, dy);
+    return backend == Backend::cuda ? cuda::softmax_backward(y, dy)
+                                    : cpu::softmax_backward(y, dy);
 }
 
 }  // namespace titan::ops

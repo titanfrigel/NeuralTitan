@@ -4,8 +4,9 @@
 
 namespace titan::ops {
 
-// Elementwise operations on CPU tensors. Two-input ops need equal shapes.
-// A CUDA tensor throws "ops::<name>: CUDA implementation arrives in M2".
+// Elementwise operations on CPU or CUDA tensors. Two-input ops need equal
+// shapes and tensors on one device; a mix throws
+// "ops::<name>: tensors are on different devices (cpu vs cuda)".
 
 // a + b.
 Tensor add(const Tensor& a, const Tensor& b);

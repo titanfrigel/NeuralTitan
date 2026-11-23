@@ -19,6 +19,8 @@ target_sources(titan_tests PRIVATE
   core/cuda_toolchain_test.cu
   support/gradcheck.cpp
   support/gradcheck_test.cpp
+  support/parity.cpp
+  support/parity_test.cpp
   ops/elementwise_test.cpp
   ops/reduce_test.cpp
   ops/matmul_test.cpp
@@ -29,18 +31,30 @@ target_sources(titan_tests PRIVATE
   ops/cross_entropy_test.cpp
   ops/adamw_test.cpp
   ops/layout_test.cpp
+  ops/cuda/elementwise_parity_test.cpp
+  ops/cuda/reduce_parity_test.cpp
+  ops/cuda/softmax_parity_test.cpp
+  ops/cuda/norm_parity_test.cpp
+  ops/cuda/matmul_parity_test.cpp
+  ops/cuda/rope_parity_test.cpp
+  ops/cuda/layout_parity_test.cpp
+  ops/cuda/embedding_parity_test.cpp
+  ops/cuda/cross_entropy_parity_test.cpp
+  ops/cuda/adamw_parity_test.cpp
   nn/linear_test.cpp
   nn/norm_module_test.cpp
   nn/mlp_test.cpp
   nn/embedding_module_test.cpp
   nn/attention_test.cpp
   nn/block_test.cpp
+  nn/module_parity_test.cpp
   optim/optim_test.cpp
   io/json_test.cpp
   io/token_file_test.cpp
   tokenizer/char_tokenizer_test.cpp
   model/config_test.cpp
   model/model_test.cpp
+  model/model_cuda_test.cpp
   runtime/data_loader_test.cpp
   runtime/trainer_test.cpp
   runtime/sampler_test.cpp
@@ -121,13 +135,14 @@ add_test(NAME cli_tokenizer_train
 
 add_test(NAME cli_train_smoke
   COMMAND $<TARGET_FILE:titan> train --config ${CLI_FIXTURES}/tiny-config.json
-    --data ${CLI_FIXTURES}/tiny_corpus.txt --out ${CLI_OUT}/smoke)
+    --data ${CLI_FIXTURES}/tiny_corpus.txt --out ${CLI_OUT}/smoke --device cpu)
 set_tests_properties(cli_train_smoke PROPERTIES
   PASS_REGULAR_EXPRESSION "final val_loss [0-9.]+")
 
 add_test(NAME cli_train_no_newline_corpus
   COMMAND $<TARGET_FILE:titan> train --config ${CLI_FIXTURES}/tiny-config.json
-    --data ${CLI_FIXTURES}/no_newline_corpus.txt --out ${CLI_OUT}/no_newline)
+    --data ${CLI_FIXTURES}/no_newline_corpus.txt --out ${CLI_OUT}/no_newline
+    --device cpu)
 set_tests_properties(cli_train_no_newline_corpus PROPERTIES
   PASS_REGULAR_EXPRESSION "final val_loss [0-9.]+")
 
@@ -141,9 +156,56 @@ function(add_cli_failure name pattern)
       -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_failure.cmake)
 endfunction()
 
-add_cli_failure(cli_train_cuda_rejected "CUDA backend arrives in M2"
-  "train;--config;${CLI_FIXTURES}/tiny-config.json;--data;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/cuda;--device;cuda")
+add_cli_failure(cli_train_gemm_needs_cuda "--gemm needs --device cuda"
+  "train;--config;${CLI_FIXTURES}/tiny-config.json;--data;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/gemm_cpu;--device;cpu;--gemm;tiled")
 add_cli_failure(cli_train_bad_config "n_kv_heads"
-  "train;--config;${CLI_FIXTURES}/bad-config.json;--data;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/bad")
+  "train;--config;${CLI_FIXTURES}/bad-config.json;--data;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/bad;--device;cpu")
 add_cli_failure(cli_train_short_corpus "too few for a training split"
-  "train;--config;${CLI_FIXTURES}/tiny-config.json;--data;${CLI_FIXTURES}/short_corpus.txt;--out;${CLI_OUT}/short")
+  "train;--config;${CLI_FIXTURES}/tiny-config.json;--data;${CLI_FIXTURES}/short_corpus.txt;--out;${CLI_OUT}/short;--device;cpu")
+
+# Usage errors exit with code 2 and print the usage text.
+function(add_cli_usage name)
+  add_test(NAME ${name}
+    COMMAND ${CMAKE_COMMAND}
+      -DEXE=$<TARGET_FILE:titan>
+      "-DARGS=${ARGN}"
+      -DEXPECT_CODE=2
+      "-DPATTERN=usage: titan"
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_failure.cmake)
+endfunction()
+
+set(CLI_TRAIN_ARGS "train;--config;${CLI_FIXTURES}/tiny-config.json;--data;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/usage")
+add_cli_usage(cli_usage_bad_device "${CLI_TRAIN_ARGS};--device;gpu")
+add_cli_usage(cli_usage_bad_gemm "${CLI_TRAIN_ARGS};--device;cpu;--gemm;fast")
+add_cli_usage(cli_usage_bench_bare "bench")
+add_cli_usage(cli_usage_bench_unknown "bench;conv")
+add_cli_usage(cli_usage_sizes_zero "bench;matmul;--sizes;0")
+add_cli_usage(cli_usage_sizes_empty_segment "bench;matmul;--sizes;256,,512")
+add_cli_usage(cli_usage_sizes_not_a_number "bench;matmul;--sizes;abc")
+add_cli_usage(cli_usage_sizes_trailing_comma "bench;matmul;--sizes;256,")
+add_cli_usage(cli_usage_repeat_zero "bench;matmul;--repeat;0")
+
+# With every CUDA device hidden, --device cuda must fail before writing --out.
+add_test(NAME cli_train_cuda_no_gpu
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    -DCONFIG=${CLI_FIXTURES}/tiny-config.json
+    -DDATA=${CLI_FIXTURES}/tiny_corpus.txt
+    -DOUT_DIR=${CLI_OUT}/no_gpu
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_no_gpu_failure.cmake)
+
+# CUDA CLI tests. They skip when the GPU is missing, which the commands report
+# as "no CUDA device available".
+add_test(NAME cli_train_cuda_smoke
+  COMMAND $<TARGET_FILE:titan> train --config ${CLI_FIXTURES}/tiny-config.json
+    --data ${CLI_FIXTURES}/tiny_corpus.txt --out ${CLI_OUT}/cuda_smoke
+    --device cuda)
+set_tests_properties(cli_train_cuda_smoke PROPERTIES
+  PASS_REGULAR_EXPRESSION "final val_loss [0-9.]+"
+  SKIP_REGULAR_EXPRESSION "no CUDA device available")
+
+add_test(NAME cli_bench_matmul_smoke
+  COMMAND $<TARGET_FILE:titan> bench matmul --sizes 64 --repeat 1)
+set_tests_properties(cli_bench_matmul_smoke PROPERTIES
+  PASS_REGULAR_EXPRESSION "tiled"
+  SKIP_REGULAR_EXPRESSION "no CUDA device available")

@@ -125,16 +125,3 @@ TITAN_TEST(Softmax, InvalidArgumentsThrow) {
         TITAN_EXPECT(std::string(e.what()).find("[2, 4]") != std::string::npos);
     }
 }
-
-TITAN_TEST(Softmax, CudaTensorThrowsM2Message) {
-    TITAN_SKIP_IF_NO_CUDA();
-    const Tensor x = Tensor::zeros({2, 2}, Device::CUDA);
-    try {
-        ops::softmax(x);
-        TITAN_EXPECT(false);
-    } catch (const titan::Error& e) {
-        TITAN_EXPECT(std::string(e.what()).find(
-                         "ops::softmax: CUDA implementation arrives in M2") !=
-                     std::string::npos);
-    }
-}

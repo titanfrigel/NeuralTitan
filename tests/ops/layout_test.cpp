@@ -1,10 +1,8 @@
-#include <string>
 #include <vector>
 
 #include "core/error.hpp"
 #include "core/rng.hpp"
 #include "core/tensor.hpp"
-#include "harness/cuda.hpp"
 #include "harness/test.hpp"
 #include "ops/layout.hpp"
 #include "support/gradcheck.hpp"
@@ -25,12 +23,6 @@ Tensor iota(titan::Shape shape) {
         t.data()[i] = static_cast<float>(i);
     }
     return t;
-}
-
-void expect_cuda_message(const std::string& message, const std::string& op) {
-    TITAN_EXPECT(
-        message.find("ops::" + op + ": CUDA implementation arrives in M2") !=
-        std::string::npos);
 }
 
 }  // namespace
@@ -132,27 +124,4 @@ TITAN_TEST(Layout, InvalidArgumentsThrow) {
     TITAN_EXPECT_THROWS(ops::repeat_kv_backward(rank3, 2), titan::Error);
     TITAN_EXPECT_THROWS(ops::repeat_kv_backward(x, 0), titan::Error);
     TITAN_EXPECT_THROWS(ops::repeat_kv_backward(x, 3), titan::Error);
-}
-
-TITAN_TEST(Layout, CudaTensorThrowsM2Message) {
-    TITAN_SKIP_IF_NO_CUDA();
-    const Tensor x = Tensor::zeros({1, 2, 2, 2}, Device::CUDA);
-    try {
-        ops::swap_dims_1_2(x);
-        TITAN_EXPECT(false);
-    } catch (const titan::Error& e) {
-        expect_cuda_message(e.what(), "swap_dims_1_2");
-    }
-    try {
-        ops::repeat_kv(x, 2);
-        TITAN_EXPECT(false);
-    } catch (const titan::Error& e) {
-        expect_cuda_message(e.what(), "repeat_kv");
-    }
-    try {
-        ops::repeat_kv_backward(x, 2);
-        TITAN_EXPECT(false);
-    } catch (const titan::Error& e) {
-        expect_cuda_message(e.what(), "repeat_kv_backward");
-    }
 }

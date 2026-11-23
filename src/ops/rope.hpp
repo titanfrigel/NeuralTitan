@@ -6,9 +6,8 @@
 
 namespace titan::ops {
 
-// Rotary position embedding over CPU tensors, half-split (rotate_half) layout
+// Rotary position embedding, half-split (rotate_half) layout
 // as in Hugging Face Llama checkpoints: the pairs are (i, i + hd/2).
-// A CUDA tensor throws "ops::<name>: CUDA implementation arrives in M2".
 
 // x is (B, H, T, hd) with hd even. Position p = pos_offset + t, and pair i
 // rotates by the angle a = p * theta^(-2i/hd). Requires pos_offset >= 0.

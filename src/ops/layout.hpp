@@ -6,9 +6,8 @@
 
 namespace titan::ops {
 
-// Head layout ops for attention over CPU tensors. They only move or sum
+// Head layout ops for attention. They only move or sum
 // elements; see docs/math/attention.md.
-// A CUDA tensor throws "ops::<name>: CUDA implementation arrives in M2".
 
 // Swaps dimensions 1 and 2 of a rank-4 tensor: (A, B, C, D) -> (A, C, B, D),
 // y[a, c, b, d] = x[a, b, c, d]. It is its own inverse, and therefore also its

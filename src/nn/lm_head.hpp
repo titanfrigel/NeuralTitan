@@ -27,6 +27,10 @@ public:
     Tensor backward(const Tensor& dy) override;
     void parameters(std::vector<Parameter*>& out) override;
 
+    // The projection weight: the tied embedding Parameter itself in tied
+    // mode, the owned "<name>.weight" otherwise.
+    const Parameter& weight() const { return *weight_; }
+
 private:
     std::string name_;
     std::optional<Parameter> owned_;  // set in untied mode only

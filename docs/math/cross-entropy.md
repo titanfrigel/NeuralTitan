@@ -40,7 +40,21 @@ This is the whole backward pass: no separate softmax Jacobian is needed, because
 
 ## Mapping to code
 
-- Public interface and precondition checks: `src/ops/cross_entropy.hpp`, `src/ops/cross_entropy.cpp`. A CUDA tensor fails with `ops::cross_entropy: CUDA implementation arrives in M2`.
+- Public interface and precondition checks: `src/ops/cross_entropy.hpp`, `src/ops/cross_entropy.cpp`. The dispatch routes by the logits' device to the CPU or the CUDA implementation. The targets live on the host and are checked there, on both devices, before anything is uploaded.
 - Reference implementation: `src/ops/cpu/cross_entropy.cpp`; one pass per row computes `m`, `lse` and the loss term, then the gradient row.
 - `src/nn/loss.hpp`, `src/nn/loss.cpp`: `nn::CrossEntropyLoss` flattens logits `(B, T, V)` to `(B·T, V)`, calls `ops::cross_entropy` with a gradient output, and returns that gradient from `backward()` reshaped to `(B, T, V)`. Its tests are in `tests/nn/block_test.cpp`.
 - Tests: `tests/ops/cross_entropy_test.cpp` covers the uniform loss `log 65`, large logits, gradient rows summing to 0, a finite-difference gradient check with the loss itself as the scalar, and error cases.
+- CUDA kernels: `src/ops/cuda/cross_entropy.cu`, declared in `src/ops/cuda/cross_entropy.hpp`. `tests/ops/cuda/cross_entropy_parity_test.cpp` compares the loss and the gradient with the CPU for `V = 65` and `V = 1000`, for 70000 rows and for logits of ±1000, checks repeatability, and checks that an out-of-range target on CUDA fails with the CPU's message.
+
+## CUDA implementation
+
+The kernels are in `src/ops/cuda/cross_entropy.cu`. None uses an atomic, and every reduction order is fixed by the block size alone, so a repeated run on the same GPU gives bit-identical results. See [CUDA execution](cuda-execution.md) for the grid and block vocabulary. The targets arrive as a host array; the dispatch checks them on the host first, because the kernels do not validate, then they are copied with one `cudaMemcpy` into a device buffer from the caching allocator. When `dlogits_out` is non-null it is assigned a new CUDA tensor, replacing whatever it held (`nn::CrossEntropyLoss` passes a 1-element CPU placeholder).
+
+- Row kernel: one block of 256 threads per row, with the rows on `gridDim.x` (`gridDim.y` would stop at 65535 rows). Thread `t` takes logits `t, t + 256, …` of the row. A shared-memory tree, the `block_reduce` of `common.cuh`, gives the row maximum `m`. A second strided loop and tree give `S = Σ_j exp(z_j − m)` in `float`. Then `lse = m + log S`, and thread 0 writes the row loss `lse − z_t` as a `double` into a scratch array of `N` entries. When a gradient is requested, a third strided loop writes `(exp(z_j − lse) − δ_jt) · (1/N)`.
+- Mean: a second kernel of one block sums the `N` row losses in `double`. Thread `t` adds rows `t, t + 256, …` in order, and the same fixed tree combines the 256 partial sums. The host copies that one `double` back, which waits for both kernels, and returns `float(total · (1/N))`.
+
+Differences from the CPU:
+
+- The CPU computes `m`, `S`, `lse` and each probability in `double`; the GPU computes them in `float`, as the other row reductions do. The two agree to about 10⁻⁷ relative, well inside the parity tolerance (`atol = 1e-5`, `rtol = 1e-4`) for the loss and the gradient.
+- Both devices sum the row losses in `double`, but in a different order: the CPU in row order, the GPU in the strided-then-tree order above. Each order is fixed, so each device is repeatable.
+- The GPU multiplies the gradient by `float(1/N)` in `float`; the CPU multiplies by `1/N` in `double` before rounding. The difference is one `float` rounding.

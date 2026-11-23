@@ -72,7 +72,21 @@ That is `dx = s · (g − mean(g) − x̂ · mean(g ⊙ x̂))`: the gradient wit
 
 ## Mapping to code
 
-- Public interface and precondition checks (device, parameter shapes, statistic sizes): `src/ops/norm.hpp`, `src/ops/norm.cpp`. A CUDA tensor fails with `ops::<name>: CUDA implementation arrives in M2`.
+- Public interface and precondition checks (device, parameter shapes, statistic sizes): `src/ops/norm.hpp`, `src/ops/norm.cpp`. The dispatch routes by the tensor's device to the CPU or the CUDA implementation; mixed devices throw.
 - Reference implementation: `src/ops/cpu/norm.cpp`. `rms_norm` and `layer_norm` allocate the saved statistics when the output pointer is non-null; the backward functions implement the formulas above, with `dot` for RMSNorm and `sum_g`, `sum_gx` for LayerNorm.
 - Tests: `tests/ops/norm_test.cpp` covers known values, statistic shapes, zero mean and unit variance, accumulation into the parameter gradients, shape errors, and finite-difference gradient checks for `x`, `w` and `b`.
+- CUDA kernels: `src/ops/cuda/norm.cu`, declared in `src/ops/cuda/norm.hpp`. `tests/ops/cuda/norm_parity_test.cpp` compares forward outputs, saved statistics, `dx` and the accumulated `dweight`/`dbias` (2049 rows, non-zero accumulators) with the CPU.
 - Modules: `src/nn/norm.hpp`, `src/nn/norm.cpp` wrap these ops as `RMSNorm` (parameter `<name>.weight`, initialized to 1) and `LayerNorm` (`<name>.weight` = 1, `<name>.bias` = 0). A training-mode forward saves `x` and the statistics; `backward` accumulates into the parameter gradients. Tests: `tests/nn/norm_module_test.cpp`.
+
+## CUDA implementation
+
+The kernels are in `src/ops/cuda/norm.cu`. None uses an atomic, and every reduction order is fixed by the block size alone, so a repeated run on the same GPU gives bit-identical results. See [CUDA execution](cuda-execution.md) for the grid and block vocabulary.
+
+- Forward and `dx`: one block of 256 threads per row, with the rows on `gridDim.x`. Thread `t` accumulates the row sums over `i = t, t + 256, …` in `float`, and the shared block tree (the one used by `row_max` and softmax) combines the 256 partials. RMSNorm needs one sum (`Σ x²` forward, `dot` backward). LayerNorm forward needs two in sequence (the mean, then the variance of the centered values, as on the CPU), and LayerNorm `dx` needs two (`Σ g`, `Σ g x̂`). A final strided loop writes the outputs. The saved statistics are written by thread 0 when the output pointer is non-null, with the same shape as on the CPU (`{1}` for a rank-1 `x`).
+- `dweight`, `dbias`: a separate kernel with one thread per column `i`. It walks the rows `0 … R − 1` in order, accumulates `Σ dy x̂` (and `Σ dy`) in `double`, and then adds the sum once to the accumulator with `+=`. Neighbouring threads read neighbouring columns, so the loads coalesce. No two threads touch the same output, which is why no atomic is needed; the price is that only `D` threads work, which is acceptable for the small `D` of this project's models.
+- `eps` is added to the mean square (or variance) before the square root, exactly as on the CPU.
+
+Differences from the CPU:
+
+- The CPU accumulates the row sums in `double`; the GPU accumulates them in `float` with the block tree, and computes `x̂`, `inv` and `dx` in `float`. The results agree to about 10⁻⁶ relative, inside the parity tolerance (`atol = 1e-5`, `rtol = 1e-4`).
+- The column sums for `dweight` and `dbias` are in `double` on both devices, in the same row order, so they differ only by the `float` inputs' rounding in `x̂` (`mean` and `inv_std` are the saved `float` statistics on both).

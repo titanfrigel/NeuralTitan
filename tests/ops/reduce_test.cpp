@@ -1,15 +1,11 @@
 #include <cmath>
 #include <limits>
-#include <string>
 #include <vector>
 
-#include "core/error.hpp"
 #include "core/tensor.hpp"
-#include "harness/cuda.hpp"
 #include "harness/test.hpp"
 #include "ops/reduce.hpp"
 
-using titan::Device;
 using titan::Tensor;
 namespace ops = titan::ops;
 
@@ -66,17 +62,4 @@ TITAN_TEST(Reduce, AllFiniteDetectsNanAndInf) {
         make({1, 2, std::numeric_limits<float>::infinity()}, {3})));
     TITAN_EXPECT(!ops::all_finite(
         make({-std::numeric_limits<float>::infinity(), 2, 3}, {3})));
-}
-
-TITAN_TEST(Reduce, CudaTensorThrowsM2Message) {
-    TITAN_SKIP_IF_NO_CUDA();
-    const Tensor x = Tensor::zeros({2}, Device::CUDA);
-    try {
-        ops::sum(x);
-        TITAN_EXPECT(false);
-    } catch (const titan::Error& e) {
-        TITAN_EXPECT(std::string(e.what()).find(
-                         "ops::sum: CUDA implementation arrives in M2") !=
-                     std::string::npos);
-    }
 }

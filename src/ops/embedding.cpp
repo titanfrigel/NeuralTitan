@@ -4,9 +4,12 @@
 #include <utility>
 
 #include "ops/cpu/embedding.hpp"
+#include "ops/cuda/embedding.hpp"
 #include "ops/detail.hpp"
 
 namespace titan::ops {
+
+using detail::Backend;
 
 namespace {
 
@@ -32,7 +35,7 @@ void check_ids(const char* op, const Tensor& table,
 
 Tensor embedding(const Tensor& table, std::span<const std::int32_t> ids,
                  Shape out_shape) {
-    detail::require_cpu("embedding", {&table});
+    const Backend backend = detail::route("embedding", {&table});
     check_table("embedding", table);
     TITAN_CHECK(out_shape.size() + 1 <= 4,
                 "ops::embedding: out_shape " + to_string(out_shape) +
@@ -54,12 +57,15 @@ Tensor embedding(const Tensor& table, std::span<const std::int32_t> ids,
                     " does not match " + std::to_string(ids.size()) + " ids");
     check_ids("embedding", table, ids);
     out_shape.push_back(table.dim(1));
-    return cpu::embedding(table, ids, std::move(out_shape));
+    return backend == Backend::cuda
+               ? cuda::embedding(table, ids, std::move(out_shape))
+               : cpu::embedding(table, ids, std::move(out_shape));
 }
 
 void embedding_backward(Tensor& dtable_acc, std::span<const std::int32_t> ids,
                         const Tensor& dy) {
-    detail::require_cpu("embedding_backward", {&dtable_acc, &dy});
+    const Backend backend =
+        detail::route("embedding_backward", {&dtable_acc, &dy});
     check_table("embedding_backward", dtable_acc);
     TITAN_CHECK(dy.dim(-1) == dtable_acc.dim(1) &&
                     dy.numel() == static_cast<std::int64_t>(ids.size()) *
@@ -68,7 +74,11 @@ void embedding_backward(Tensor& dtable_acc, std::span<const std::int32_t> ids,
                     " does not match " + std::to_string(ids.size()) +
                     " ids and table " + to_string(dtable_acc.shape()));
     check_ids("embedding_backward", dtable_acc, ids);
-    cpu::embedding_backward(dtable_acc, ids, dy);
+    if (backend == Backend::cuda) {
+        cuda::embedding_backward(dtable_acc, ids, dy);
+    } else {
+        cpu::embedding_backward(dtable_acc, ids, dy);
+    }
 }
 
 }  // namespace titan::ops
