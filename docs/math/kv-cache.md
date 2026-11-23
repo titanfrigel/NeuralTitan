@@ -51,6 +51,32 @@ Each layer's cache is `(B, Hkv, Tmax, hd)`, the head-major layout attention comp
 
 Blocks may have different `n_kv_heads` and head sizes, so the cache keeps a shape per layer (`nn::KvLayerShape`); `make_kv_cache` reads them from each block's config.
 
+## Generation loop
+
+`runtime::Generator` drives the cache to extend a prompt by `N` tokens, batch 1, in inference mode. It owns the cache, built once by `make_kv_cache(1)` on the model's device, and one `Rng` seeded at construction. Write `C = context_length` and `L` for the cache length.
+
+### Prefill then decode
+
+1. **Prefill.** Clear the cache (`L = 0`) and run the last `min(len, C)` prompt tokens in one forward at `p₀ = 0`, then set `L` to that count. A prompt longer than `C` is fed by its tail, because no position may reach `C`; the returned sequence still starts with the whole prompt. Sample the first new token from the last row of the logits.
+2. **Decode.** Append the sampled token, call `on_token` with it, and, unless it was the last one, run it alone (`T = 1`) at `p₀ = L`, set `L ← L + 1` and sample the next token from the single row of logits.
+
+Each forward goes through one helper that sets `pos_offset = L`, runs the model, advances the length to `L + T` and samples from row `T − 1`. The logits are copied to the host for sampling, since the sampler runs on host floats.
+
+Until the cache fills, every sampled distribution comes from the same logits as an uncached forward over the whole sequence (see [Prefill against decode](#prefill-against-decode)), so the Generator and `runtime::generate_naive` produce the same tokens. On the CPU the cached and uncached logits agree exactly, and `tests/runtime/generator_test.cpp` checks that sampled tokens with the same seed are equal, not only greedy ones.
+
+### Sliding by half
+
+Decode needs a free row: a step at `L = C` would write position `C`, past the cache and past the positions the model was built for (`kv_write` throws). When the cache is full, the Generator slides: it keeps the last `K = max(1, ⌊C / 2⌋)` tokens of the sequence, which end with the token just sampled, clears the cache and prefills those `K` tokens at positions `0 … K − 1`. Decoding then continues at `L = K` and the next slide comes after `C − K` more tokens.
+
+- **Cost.** A slide is one prefill of `K` tokens, about the cost of `K` decode steps. It happens once every `C − K ≈ C / 2` tokens, so it adds about one decode step's worth of work per generated token: the amortized cost per token stays `O(C)` for the scores, the same order as an ordinary decode step. Sliding by one token instead would need a full re-prefill of `C − 1` tokens every step, since every cached key carries the RoPE rotation of its old position and none of them can be reused at a shifted position.
+- **Trade-off.** Right after a slide, the model sees only the last `K` tokens instead of the last `C`, and the window then grows back to `C` before the next slide. `generate_naive` always sees the last `min(len, C)` tokens, so the two agree only until the first slide; after it, they condition on different windows and their tokens differ. Halving keeps the visible window between `C / 2` and `C` tokens while keeping slides rare.
+
+With the prompt of length `P ≤ C`, the first slide comes before new token `C − P + 1` (counting from 0): new tokens `0 … C − P` are produced at lengths `P … C`, as `tests/runtime/generator_test.cpp` checks through `Generator::cache()` from the `on_token` callback.
+
+### The RNG contract
+
+A single seed drives sampling: the Generator seeds its `Rng` once, at construction, and every `generate` call continues the same stream. Each new token is chosen by exactly one call to `runtime::sample`, which draws exactly one `uniform()` when the temperature is above 0 and none for greedy decoding. Prefill, decode and slide steps all draw the same way, and the order of draws is the order of the tokens, the same as in `generate_naive`. So for one seed and one model, the Generator and `generate_naive` draw the same numbers and, while their logits agree, pick the same tokens; a slide changes which logits the draws are applied to, never the number or order of the draws.
+
 ## Backward derivation
 
 None, inference only. A forward with a cache requires `training == false` and throws "attention: the KV cache is inference-only" otherwise. That forward stores nothing for backward: attention resets its saved `Q`, `K_r`, `V_r` and `P`, so a later `backward` throws. `kv_write` and `kv_read` are copies with no gradient (see [Attention](attention.md#the-layout-ops)).
@@ -74,4 +100,5 @@ The checks: `p₀ = length()`, the cache has one layer per block, layer `i` matc
 - The cached path of `nn::Attention::forward`: `src/nn/attention.cpp`, steps 3-4 above between the RoPE and the `repeat_kv` of the uncached path.
 - `model::Model::make_kv_cache` and the per-block `ctx.layer`: `src/model/model.cpp`.
 - The copies: `ops::kv_write`, `ops::kv_read` in `src/ops/layout.hpp`.
-- Tests: `tests/nn/kv_cache_test.cpp` compares a cached prefill and every decode step with the uncached forward, for the M1 model config and for two blocks with different KV shapes, compares cached decoding on CUDA with the CPU, and checks the training-mode, offset, cache-shape and context rejections and that a cached forward leaves nothing for backward.
+- The generation loop: `runtime::Generator` in `src/runtime/generator.hpp`, `src/runtime/generator.cpp`; `feed` is the helper that runs one forward at `pos_offset = length()` and samples.
+- Tests: `tests/nn/kv_cache_test.cpp` compares a cached prefill and every decode step with the uncached forward, for the M1 model config and for two blocks with different KV shapes, compares cached decoding on CUDA with the CPU, and checks the training-mode, offset, cache-shape and context rejections and that a cached forward leaves nothing for backward. `tests/runtime/generator_test.cpp` compares the Generator with `generate_naive` (greedy on the CPU and CUDA, sampled on the CPU), and checks streaming, the slide, the long-prompt tail, the input checks and that `nn::KvCache` cannot be copied.

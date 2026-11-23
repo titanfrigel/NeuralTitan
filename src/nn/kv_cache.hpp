@@ -32,6 +32,12 @@ public:
     // layer has n_kv_heads >= 1 and head_dim >= 1.
     KvCache(std::vector<KvLayerShape> layers, std::int64_t batch,
             std::int64_t max_len, Device device);
+    // Move-only: a copy would share the tensor storage but keep its own
+    // length, so two copies would silently overwrite each other's rows.
+    KvCache(const KvCache&) = delete;
+    KvCache& operator=(const KvCache&) = delete;
+    KvCache(KvCache&&) = default;
+    KvCache& operator=(KvCache&&) = default;
 
     // The cache of layer `layer`. Throws unless 0 <= layer < n_layers().
     Tensor& keys(std::int64_t layer);

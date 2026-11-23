@@ -49,7 +49,7 @@ Current:
 - `src/nn/`: the `nn` layer (modules with hand-written backward passes, and the KV cache for inference).
 - `src/optim/`: the `optim` layer (AdamW, gradient clipping, learning-rate schedule).
 - `src/model/`: the `model` layer (model config and the decoder-only model).
-- `src/runtime/`: the `runtime` layer (data loader, trainer, naive sampler).
+- `src/runtime/`: the `runtime` layer (data loader, trainer, checkpoints, sampler, KV-cached generator).
 - `apps/titan/`: the `titan` executable (the `cli` layer): `main.cpp` and `commands.*`.
 - `configs/`: model and training JSON configs (`tiny-shakespeare.json`).
 - `tests/`: the test runner and tests. `tests/harness/` is the project's own test harness; `tests/layer_check/` holds fixtures for the layer include check; `tests/fixtures/cli/` holds hand-written CLI inputs (not generated golden fixtures); `tests/support/` holds shared helpers (`gradcheck.*`, and `parity.*` for CPU-vs-CUDA comparisons); `tests/ops/cuda/` holds the CPU-vs-CUDA parity tests.
