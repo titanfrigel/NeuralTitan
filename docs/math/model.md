@@ -13,7 +13,7 @@ With `L` blocks, `V = vocab_size`, ids `(B, T)`:
 3. `z = final_norm(x_L)`, RMSNorm or LayerNorm per `final_norm` in the config. `(B, T, dim)`.
 4. `logits = z Hᵀ` with `H = E` when tied, else the separate `lm_head.weight` `(V, dim)`. `(B, T, V)`.
 
-`forward` requires `B, T ≥ 1`, `B·T` ids and `T ≤ context_length`.
+`forward` requires `B, T ≥ 1`, `B·T` ids and `T ≤ context_length`. With a KV cache it also requires `pos_offset + T ≤ context_length` and a cache with one layer per block; `forward` sets `ctx.layer = i` before block `i` so each attention layer uses its own cache layer, and `make_kv_cache(batch)` builds that cache from each block's `n_kv_heads` and head size. See [KV cache](kv-cache.md).
 
 ## Backward derivation
 

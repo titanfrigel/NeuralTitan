@@ -48,6 +48,7 @@ target_sources(titan_tests PRIVATE
   nn/attention_test.cpp
   nn/block_test.cpp
   nn/module_parity_test.cpp
+  nn/kv_cache_test.cpp
   optim/optim_test.cpp
   optim/adamw_test.cpp
   io/json_test.cpp

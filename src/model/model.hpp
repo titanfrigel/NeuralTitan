@@ -11,6 +11,7 @@
 #include "model/config.hpp"
 #include "nn/block.hpp"
 #include "nn/embedding.hpp"
+#include "nn/kv_cache.hpp"
 #include "nn/lm_head.hpp"
 #include "nn/module.hpp"
 
@@ -42,9 +43,18 @@ public:
     void init(Rng& rng);
 
     // ids holds B·T token ids, row-major (B, T). Throws unless B, T >= 1,
-    // ids.size() == B·T and T <= context_length. Returns logits (B, T, vocab).
+    // ids.size() == B·T and ctx.pos_offset + T <= context_length. Returns
+    // logits (B, T, vocab). Sets ctx.layer = i before block i. With
+    // ctx.kv_cache set (inference only), the cache must have one layer per
+    // block; the forward writes positions pos_offset..pos_offset+T-1 and the
+    // caller then calls kv_cache->set_length(pos_offset + T).
     Tensor forward(std::span<const std::int32_t> ids, std::int64_t B,
                    std::int64_t T, nn::ForwardContext& ctx);
+    // An empty cache for `batch` sequences of up to context_length tokens, on
+    // the model's device, with one layer per block shaped from that block's
+    // n_kv_heads and head size dim / n_heads (blocks may differ). Throws
+    // unless batch >= 1.
+    nn::KvCache make_kv_cache(std::int64_t batch) const;
     // Accumulates every parameter gradient from dL/dlogits (B, T, vocab).
     void backward(const Tensor& dlogits);
 

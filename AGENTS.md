@@ -46,7 +46,7 @@ Current:
 - `src/io/`: the `io` layer (JSON parser and writer, file helpers, token files).
 - `src/tokenizer/`: the `tokenizer` layer (character-level tokenizer).
 - `src/ops/`: the `ops` layer, with the CPU backend `ops/cpu` and the CUDA backend `ops/cuda` (`common.cuh` launch helpers and shared block reduction, `cublas_handle.cu`, and one `.cu` per op family: elementwise, reduce, matmul, softmax, norm, rope, layout, embedding, cross-entropy, adamw).
-- `src/nn/`: the `nn` layer (modules with hand-written backward passes).
+- `src/nn/`: the `nn` layer (modules with hand-written backward passes, and the KV cache for inference).
 - `src/optim/`: the `optim` layer (AdamW, gradient clipping, learning-rate schedule).
 - `src/model/`: the `model` layer (model config and the decoder-only model).
 - `src/runtime/`: the `runtime` layer (data loader, trainer, naive sampler).

@@ -3,6 +3,8 @@
 #include <cmath>
 #include <string>
 #include <string_view>
+#include <utility>
+#include <vector>
 
 #include "core/error.hpp"
 #include "nn/init.hpp"
@@ -112,20 +114,42 @@ Tensor Model::forward(std::span<const std::int32_t> ids, std::int64_t B,
     TITAN_CHECK(B >= 1 && T >= 1, "Model::forward: B and T must be >= 1, got " +
                                       std::to_string(B) + " and " +
                                       std::to_string(T));
-    TITAN_CHECK(T <= config_.context_length,
-                "Model::forward: sequence length " + std::to_string(T) +
-                    " exceeds context_length " +
-                    std::to_string(config_.context_length));
+    TITAN_CHECK(
+        ctx.pos_offset >= 0 && ctx.pos_offset + T <= config_.context_length,
+        "Model::forward: positions " + std::to_string(ctx.pos_offset) + ".." +
+            std::to_string(ctx.pos_offset + T - 1) + " exceed context_length " +
+            std::to_string(config_.context_length));
+    TITAN_CHECK(
+        ctx.kv_cache == nullptr ||
+            ctx.kv_cache->n_layers() ==
+                static_cast<std::int64_t>(blocks_.size()),
+        "Model::forward: the KV cache has " +
+            std::to_string(ctx.kv_cache == nullptr ? 0
+                                                   : ctx.kv_cache->n_layers()) +
+            " layers for " + std::to_string(blocks_.size()) + " blocks");
     TITAN_CHECK(static_cast<std::int64_t>(ids.size()) == B * T,
                 "Model::forward: got " + std::to_string(ids.size()) +
                     " ids for B = " + std::to_string(B) +
                     ", T = " + std::to_string(T));
     Tensor x = embed_tokens_.forward(ids, {B, T}, ctx);  // (B, T, dim)
-    for (const auto& block : blocks_) {
-        x = block->forward(x, ctx);
+    for (std::size_t i = 0; i < blocks_.size(); ++i) {
+        ctx.layer = static_cast<std::int64_t>(i);  // the block's cache layer
+        x = blocks_[i]->forward(x, ctx);
     }
     x = final_norm_->forward(x, ctx);
     return lm_head_->forward(x, ctx);  // (B, T, vocab)
+}
+
+nn::KvCache Model::make_kv_cache(std::int64_t batch) const {
+    std::vector<nn::KvLayerShape> layers;
+    layers.reserve(config_.blocks.size());
+    for (const BlockConfig& b : config_.blocks) {
+        // The constructor checked that n_heads divides dim.
+        layers.push_back(nn::KvLayerShape{.n_kv_heads = b.n_kv_heads,
+                                          .head_dim = config_.dim / b.n_heads});
+    }
+    return nn::KvCache(std::move(layers), batch, config_.context_length,
+                       device());
 }
 
 void Model::backward(const Tensor& dlogits) {
