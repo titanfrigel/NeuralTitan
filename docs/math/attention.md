@@ -34,7 +34,7 @@ If the entries of `q` and `k` are independent with mean 0 and variance 1, `q·k`
 
 ### The causal mask
 
-Within one sequence, position `t` must not depend on later tokens. The mask is applied inside `causal_softmax` before the row maximum, by skipping the masked keys rather than adding `−∞` (see [Softmax](softmax.md) for why the order matters). In M1 the full sequence is processed at once, `p₀ = 0`, and the visible keys of row `t` are `0 … t`. A nonzero `p₀` only makes sense with a KV cache (M3), where the `T` queries are the last of a longer key sequence; without one, `causal_softmax` rejects it because `Tk = T < T + p₀`.
+Within one sequence, position `t` must not depend on later tokens. The mask is applied inside `causal_softmax` before the row maximum, by skipping the masked keys rather than adding `−∞` (see [Softmax](softmax.md) for why the order matters). In M1 the full sequence is processed at once, `p₀ = 0`, and the visible keys of row `t` are `0 … t`. A nonzero `p₀` only makes sense with a KV cache (M3), where the `T` queries are the last of a longer key sequence; without one, `causal_softmax` rejects it because `Tk = T < T + p₀`. Since M3, attention itself rejects a nonzero `p₀` without a cache first, with "pos_offset > 0 needs a KV cache" (`tests/nn/kv_cache_test.cpp`).
 
 ### The layout ops
 

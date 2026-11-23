@@ -30,7 +30,9 @@ public:
     // Test seam. When enabled, next() ignores the Rng and yields consecutive
     // windows starting at offsets 0, seq, 2*seq, ..., wrapping to offset 0
     // when the next window would overrun the stream. It lets a test feed two
-    // loaders with different batch sizes the same windows.
+    // loaders with different batch sizes the same windows. The sequential
+    // cursor is not saved in TrainerState, so a resumed run does not continue
+    // it; this test-only mode is not resumable.
     void set_sequential(bool sequential);
 
     // The generator that draws the offsets, so a checkpoint can save and
