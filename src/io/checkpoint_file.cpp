@@ -213,7 +213,18 @@ Parsed parse_container(const std::filesystem::path& path, std::ifstream& in) {
     std::set<std::string> seen;
     std::uint64_t cursor = 0;
     for (std::size_t i = 0; i < list->as_array().size(); ++i) {
-        Entry e = parse_entry(list->as_array()[i], i, data_len, cursor, ctx);
+        Entry e;
+        try {
+            e = parse_entry(list->as_array()[i], i, data_len, cursor, ctx);
+        } catch (const Error& err) {
+            const std::string msg = err.what();
+            // Entry checks already name the file; a missing or mistyped JSON
+            // field does not, so add the file and the entry index.
+            if (msg.find(ctx) != std::string::npos) {
+                throw;
+            }
+            throw Error(ctx + "tensors[" + std::to_string(i) + "]: " + msg);
+        }
         TITAN_CHECK(seen.insert(e.name).second,
                     ctx + "duplicate tensor name '" + e.name + "'");
         cursor = align_up(e.offset + e.bytes);

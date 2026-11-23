@@ -379,3 +379,25 @@ TITAN_TEST(Checkpoint, RejectsMissingFile) {
     TITAN_EXPECT(read_rejects(temp_path("titan_ckpt_does_not_exist.tckp"),
                               "cannot stat"));
 }
+
+TITAN_TEST(Checkpoint, RejectsBadEntryFieldNamingFileAndIndex) {
+    // The second entry is at fault, so the message must say tensors[1].
+    const std::string good = R"({"name":"a","shape":[2],"offset":0,"crc32":0})";
+    const std::string missing_shape =
+        R"({"meta":{},"tensors":[)" + good +
+        R"(,{"name":"b","offset":64,"crc32":0}]})";
+    const std::string fractional_offset =
+        R"({"meta":{},"tensors":[)" + good +
+        R"(,{"name":"b","shape":[2],"offset":1.5,"crc32":0}]})";
+
+    const auto p = temp_path("titan_ckpt_entry_field.tckp");
+    titan::io::write_file(p, raw_file(missing_shape, 128));
+    TITAN_EXPECT(read_rejects(p, p.string()));
+    TITAN_EXPECT(read_rejects(p, "tensors[1]"));
+    TITAN_EXPECT(read_rejects(p, "shape"));
+
+    titan::io::write_file(p, raw_file(fractional_offset, 128));
+    TITAN_EXPECT(read_rejects(p, p.string()));
+    TITAN_EXPECT(read_rejects(p, "tensors[1]"));
+    std::filesystem::remove(p);
+}
