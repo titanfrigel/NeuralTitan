@@ -31,7 +31,10 @@ public:
     //     literal text of an added token;
     //   - merges[rank] = (left id, right id); the merged token is the
     //     vocabulary entry vocab[left] + vocab[right];
-    //   - added_ids are the ids of the added tokens.
+    //   - a part of a merge is a single byte symbol or the result of an
+    //     earlier merge;
+    //   - added_ids are the ids of the added tokens, none of which is a
+    //     single byte symbol.
     // A byte may lack a symbol; encode then drops it.
     // Throws titan::Error on parts that break these rules.
     static BpeTokenizer from_parts(

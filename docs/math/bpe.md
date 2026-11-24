@@ -132,7 +132,24 @@ So the space `0x20`, the 33rd of the shifted bytes, becomes U+0100 + 32 = U+0120
 3. **Merge.** Each piece starts as one symbol per byte. While some adjacent pair of symbols has a merge, take the pair with the lowest rank (its index in the merge list), and replace all of its non-overlapping occurrences, from left to right, with the merged token. Repeat until no adjacent pair has a merge.
 4. **Emit** the id of every remaining symbol.
 
-Merging every occurrence of the best pair at once gives the same result as the reference, which merges one occurrence at a time from a priority queue ordered by rank, then position. A merge creates a token longer than both of its parts, so it never creates a new occurrence of the pair it just merged. Overlaps are resolved left to right: with only the merge `a a`, `aaa` becomes `aa`, `a`.
+Overlaps are resolved left to right: with only the merge `a a`, `aaa` becomes `aa`, `a`.
+
+### Merge order
+
+The reference merges one occurrence at a time. It keeps a priority queue of adjacent pairs ordered by rank, then by position. After each merge it adds the two new pairs that the merged token forms with its neighbours. Merging every occurrence of the lowest-ranked pair at once gives the same result only under a **precondition** on the merge list:
+
+> Each part of merge `i` is either a single byte symbol or the result of some merge `j < i`.
+
+Under it, suppose the reference has just merged an occurrence of the pair of rank `r` into the token `t`. Every new pair contains `t`. A merge that uses `t` as a part comes after a merge that creates `t`, and the first merge creating `t` has rank at most `r`. So every new pair ranks above `r`. The queue therefore pops all remaining occurrences of rank `r`, from left to right, before anything else. An occurrence that overlaps a merged one has lost a symbol and is skipped. That is exactly what one step of our loop does.
+
+Without the precondition the two orders can differ. Take the vocabulary `a`, `b`, `ab`, `aba` and the merges `ab a` (rank 0), then `a b` (rank 1). For `"abab"`:
+
+- the reference merges the first `a b` into `ab`, which forms `ab a` of rank 0. That pair ranks below the second `a b`, so it is merged next. The result is `aba`, `b`;
+- merging every `a b` at once gives `ab`, `ab`.
+
+`from_json` and `from_parts` therefore reject a merge with a multi-symbol part that no earlier merge creates, naming `model.merges[i]` and the part. A merge list produced by training always meets the precondition, because a token exists only once its merge has been learned. SmolLM2's 48900 merges meet it.
+
+For the same reason an added token may not be the symbol of a single byte. The reference would use the added token's id for that byte inside BPE, while NeuralTitan keeps added tokens out of BPE.
 
 ### Worked example: merging "hello"
 
@@ -181,8 +198,8 @@ The tokenizer is stored in Hugging Face's `tokenizer.json` layout, restricted to
 | `model.dropout`, `unk_token`, `continuing_subword_prefix`, `end_of_word_suffix` | `null` or absent |
 | `model.fuse_unk`, `byte_fallback`, `ignore_merges` | `false` or absent |
 | `model.vocab` | an object from text to id. The ids are integers, unique and dense over `[0, n)`, with 1 ≤ n < 2^31. Every entry that is not an added token is a non-empty string of byte-level symbols. |
-| `model.merges` | each entry is `"a b"`, with exactly one space, or `["a", "b"]`. `a`, `b` and `a+b` are ordinary vocabulary entries, and no pair appears twice. The index is the rank. |
-| `added_tokens[i]` | `content` is in the vocabulary, and `id` equals its vocabulary id. `special` is `true`; `normalized`, `lstrip`, `rstrip` and `single_word` are `false`. No content appears twice. |
+| `model.merges` | each entry is `"a b"`, with exactly one space, or `["a", "b"]`. `a`, `b` and `a+b` are ordinary vocabulary entries, and no pair appears twice. A part of more than one symbol is the result of an earlier merge (see "Merge order"). The index is the rank. |
+| `added_tokens[i]` | `content` is non-empty, is not the symbol of a single byte, and is in the vocabulary; `id` equals its vocabulary id. `special` is `true`; `normalized`, `lstrip`, `rstrip` and `single_word` are `false`. No content appears twice. |
 
 Unknown keys are rejected at the top level, in `model` and in each added token. Ids are bounds-checked before anything is indexed or allocated.
 

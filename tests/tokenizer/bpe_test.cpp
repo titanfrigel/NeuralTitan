@@ -555,10 +555,60 @@ TITAN_TEST(Bpe, FromJsonRejectsAddedTokenId) {
     std::string msg =
         from_json_error(replaced(text, R"({"id":0,)", R"({"id":5,)"));
     TITAN_EXPECT(contains(msg, "added_tokens[0].id"));
-    TITAN_EXPECT(contains(msg, "5"));
+    TITAN_EXPECT(contains(msg, "5 does not match the vocabulary id 0"));
 
     msg = from_json_error(replaced(text, R"("content":"<|endoftext|>")",
                                    R"("content":"<|end|>")"));
     TITAN_EXPECT(contains(msg, "added_tokens[0].content"));
     TITAN_EXPECT(contains(msg, "not in the vocabulary"));
+}
+
+TITAN_TEST(Bpe, FromJsonRejectsEmptyAddedToken) {
+    const std::string msg = from_json_error(replaced(
+        hello_text(), R"("content":"<|endoftext|>")", R"("content":"")"));
+    TITAN_EXPECT(contains(msg, "added_tokens[0].content"));
+    TITAN_EXPECT(contains(msg, "is empty"));
+}
+
+TITAN_TEST(Bpe, FromJsonRejectsAddedByteSymbol) {
+    // "a" (id 98) is the symbol of byte 0x61; as an added token it would
+    // take over that byte inside BPE in the reference.
+    const std::string msg = from_json_error(
+        replaced(hello_text(), R"({"id":0,"content":"<|endoftext|>")",
+                 R"({"id":98,"content":"a")"));
+    TITAN_EXPECT(contains(msg, "added_tokens[0].content"));
+    TITAN_EXPECT(contains(msg, "symbol of a single byte"));
+}
+
+TITAN_TEST(Bpe, FromJsonRejectsMergeBeforeItsPart) {
+    // The reviewer's file: "ab a" uses ab before "a b" creates it. The
+    // reference encodes "abab" as aba, b; merging by rank over all
+    // occurrences would give ab, ab, so the file is refused.
+    std::string msg = from_json_error(
+        make_doc({"ab", "aba"}, string_merges({"ab a", "a b"})));
+    TITAN_EXPECT(contains(msg, "model.merges[0]"));
+    TITAN_EXPECT(contains(msg, "part \"ab\""));
+    TITAN_EXPECT(contains(msg, "earlier merge"));
+
+    // A part that no merge creates at all.
+    msg = from_json_error(make_doc({"ab", "abc"}, string_merges({"ab c"})));
+    TITAN_EXPECT(contains(msg, "model.merges[0]"));
+    TITAN_EXPECT(contains(msg, "part \"ab\""));
+
+    // The same order through from_parts: ab = 257, aba = 258.
+    std::vector<std::string> vocab = {"<|endoftext|>"};
+    for (unsigned b = 0; b < 256; ++b) {
+        vocab.push_back(sym(static_cast<unsigned char>(b)));
+    }
+    vocab.emplace_back("ab");
+    vocab.emplace_back("aba");
+    TITAN_EXPECT_THROWS(
+        BpeTokenizer::from_parts(
+            vocab, {{257, byte_id('a')}, {byte_id('a'), byte_id('b')}}, {0}),
+        titan::Error);
+    // In the right order the same parts are accepted.
+    const BpeTokenizer ok = BpeTokenizer::from_parts(
+        vocab, {{byte_id('a'), byte_id('b')}, {257, byte_id('a')}}, {0});
+    TITAN_EXPECT(ok.encode("aba") == ids({258}));
+    TITAN_EXPECT(ok.encode("abab") == ids({257, 257}));
 }

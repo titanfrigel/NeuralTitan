@@ -293,6 +293,18 @@ BpeTokenizer BpeTokenizer::from_json(const JsonValue& json) {
                 fail(child(path, "content"),
                      "expected a string, got " + show(content));
             }
+            if (content.as_string().empty()) {
+                fail(child(path, "content"), "is empty");
+            }
+            // The reference would use such a token's id inside BPE for the
+            // byte; we keep added tokens out of BPE, so the case is refused.
+            if (const std::optional<std::string> bytes =
+                    symbols_to_bytes(content.as_string());
+                bytes && bytes->size() == 1) {
+                fail(child(path, "content"),
+                     quoted(content.as_string()) +
+                         " is the byte-level symbol of a single byte");
+            }
             const auto found = id_of.find(content.as_string());
             if (found == id_of.end()) {
                 fail(child(path, "content"),
@@ -328,6 +340,7 @@ BpeTokenizer BpeTokenizer::from_json(const JsonValue& json) {
     // Every other entry is written in the byte-level alphabet. Not every
     // byte needs a symbol of its own: SmolLM2 has none for 21 bytes, and
     // encode drops them (docs/math/bpe.md, "Encode").
+    std::vector<bool> is_byte(n, false);  // a single byte-level symbol
     for (std::size_t id = 0; id < n; ++id) {
         if (is_added[id]) {
             continue;
@@ -337,6 +350,7 @@ BpeTokenizer BpeTokenizer::from_json(const JsonValue& json) {
             fail(vocab_path + "[" + quoted(vocab[id]) + "]",
                  "is not text in the byte-level alphabet");
         }
+        is_byte[id] = bytes->size() == 1;
     }
 
     // model.merges, by rank.
@@ -354,6 +368,10 @@ BpeTokenizer BpeTokenizer::from_json(const JsonValue& json) {
     merges.reserve(merge_entries.size());
     std::unordered_map<std::uint64_t, std::size_t> rank_of;
     rank_of.reserve(merge_entries.size());
+    // Tokens produced by the merges read so far. A multi-symbol part must be
+    // one of them, so that encode's merge order equals the reference's
+    // (docs/math/bpe.md, "Merge order").
+    std::vector<bool> created(n, false);
     for (std::size_t i = 0; i < merge_entries.size(); ++i) {
         const std::string path = element(merges_path, i);
         const auto [left, right] = merge_parts(merge_entries[i], path);
@@ -369,6 +387,14 @@ BpeTokenizer BpeTokenizer::from_json(const JsonValue& json) {
             }
             part_ids[k] = found->second;
         }
+        for (int k = 0; k < 2; ++k) {
+            const auto part = static_cast<std::size_t>(part_ids[k]);
+            if (!is_byte[part] && !created[part]) {
+                fail(path, "part " + quoted(texts[k]) +
+                               " is not the result of an earlier merge");
+            }
+        }
+        created[static_cast<std::size_t>(part_ids[2])] = true;
         const auto [it, inserted] =
             rank_of.emplace(pair_key(part_ids[0], part_ids[1]), i);
         if (!inserted) {
@@ -417,6 +443,12 @@ BpeTokenizer BpeTokenizer::from_parts(
                                   std::to_string(id) + " repeats the text of " +
                                   std::to_string(it->second));
         if (tok.is_added_[id]) {
+            const std::optional<std::string> bytes =
+                symbols_to_bytes(vocab[id]);
+            TITAN_CHECK(!(bytes && bytes->size() == 1),
+                        "BpeTokenizer::from_parts: added token " +
+                            std::to_string(id) +
+                            " is the byte-level symbol of a single byte");
             tok.bytes_[id] = vocab[id];  // an added token decodes literally
             continue;
         }
@@ -436,6 +468,7 @@ BpeTokenizer BpeTokenizer::from_parts(
     }
 
     tok.merge_of_.reserve(merges.size());
+    std::vector<bool> created(n, false);  // see from_json
     for (std::size_t rank = 0; rank < merges.size(); ++rank) {
         const auto [left, right] = merges[rank];
         TITAN_CHECK(in_range(left) && in_range(right) &&
@@ -443,6 +476,14 @@ BpeTokenizer BpeTokenizer::from_parts(
                         !tok.is_added_[static_cast<std::size_t>(right)],
                     "BpeTokenizer::from_parts: merge " + std::to_string(rank) +
                         " has a part outside the ordinary vocabulary");
+        for (const std::int32_t part : {left, right}) {
+            const auto index = static_cast<std::size_t>(part);
+            TITAN_CHECK(tok.bytes_[index].size() == 1 || created[index],
+                        "BpeTokenizer::from_parts: part " +
+                            std::to_string(part) + " of merge " +
+                            std::to_string(rank) +
+                            " is not the result of an earlier merge");
+        }
         const auto merged =
             tok.ids_.find(vocab[static_cast<std::size_t>(left)] +
                           vocab[static_cast<std::size_t>(right)]);
@@ -451,6 +492,7 @@ BpeTokenizer BpeTokenizer::from_parts(
                 !tok.is_added_[static_cast<std::size_t>(merged->second)],
             "BpeTokenizer::from_parts: the result of merge " +
                 std::to_string(rank) + " is not in the vocabulary");
+        created[static_cast<std::size_t>(merged->second)] = true;
         const bool inserted =
             tok.merge_of_
                 .emplace(pair_key(left, right),
