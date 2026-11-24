@@ -57,6 +57,7 @@ target_sources(titan_tests PRIVATE
   io/checkpoint_file_test.cpp
   tokenizer/char_tokenizer_test.cpp
   tokenizer/pretokenizer_test.cpp
+  tokenizer/bpe_test.cpp
   model/config_test.cpp
   model/model_test.cpp
   model/model_cuda_test.cpp

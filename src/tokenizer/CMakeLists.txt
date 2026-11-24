@@ -1,4 +1,6 @@
 add_library(titan_tokenizer STATIC
+  bpe_tokenizer.cpp
+  byte_level.cpp
   char_tokenizer.cpp
   pretokenizer.cpp
   unicode_tables.cpp)
