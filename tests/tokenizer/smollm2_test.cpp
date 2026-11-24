@@ -29,7 +29,7 @@ const std::filesystem::path kFixtures =
 // The fixture "!\x04!": byte 0x04 has no symbol in SmolLM2's vocabulary, so
 // it is dropped and the reference decodes the ids to "!!", not the text.
 constexpr std::size_t kDroppedByteCase = 24;
-constexpr std::size_t kNumCases = 25;
+constexpr std::size_t kNumCases = 26;
 
 JsonValue read_fixture(const char* name) {
     return titan::io::parse_json(titan::io::read_file(kFixtures / name));
@@ -110,6 +110,9 @@ TITAN_TEST(SmolLM2, EncodeMatchesReference) {
 TITAN_TEST(SmolLM2, DecodeMatchesReference) {
     const std::vector<Case>& all = cases();
     TITAN_EXPECT_EQ(all.size(), kNumCases);
+    // The exception below applies to this case only; fail if it moved.
+    TITAN_EXPECT(all.size() > kDroppedByteCase &&
+                 all[kDroppedByteCase].text == std::string("!\x04!"));
     for (std::size_t i = 0; i < all.size(); ++i) {
         const std::string decoded = reference().decode(all[i].ids);
         TITAN_EXPECT_EQ(decoded, all[i].decoded);

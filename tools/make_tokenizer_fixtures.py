@@ -65,6 +65,10 @@ FIXTURE_STRINGS = [
     # The symbol of byte 0x04 is not in the vocabulary: the byte is dropped
     # before merging, so the two "!" merge into one token.
     "!\x04!",
+    # The contractions are case-sensitive: "'M" and "'RE" are not split off,
+    # so "Malley" and "REN" stay whole letter runs. Matching them
+    # case-insensitively would give "'M" + "alley" and "'RE" + "N".
+    "O'Malley WE'REN'T",
 ]
 
 
