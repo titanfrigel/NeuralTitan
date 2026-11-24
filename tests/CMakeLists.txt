@@ -58,6 +58,7 @@ target_sources(titan_tests PRIVATE
   tokenizer/char_tokenizer_test.cpp
   tokenizer/pretokenizer_test.cpp
   tokenizer/bpe_test.cpp
+  tokenizer/smollm2_test.cpp
   model/config_test.cpp
   model/model_test.cpp
   model/model_cuda_test.cpp

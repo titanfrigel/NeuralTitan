@@ -1,0 +1,422 @@
+{
+ "revision": "93efa2f097d58c2a74874c7e644dbc9b0cee75a2",
+ "tokenizers_version": "0.23.3",
+ "cases": [
+  {
+   "text": "",
+   "ids": [],
+   "decoded": ""
+  },
+  {
+   "text": "Hello world",
+   "ids": [
+    19556,
+    905
+   ],
+   "decoded": "Hello world"
+  },
+  {
+   "text": "Hello world 12345 <|endoftext|> h\u00e9llo",
+   "ids": [
+    19556,
+    905,
+    216,
+    33,
+    34,
+    35,
+    36,
+    37,
+    216,
+    0,
+    294,
+    2756,
+    31394
+   ],
+   "decoded": "Hello world 12345 <|endoftext|> h\u00e9llo"
+  },
+  {
+   "text": "I'm don't we're they've she'll he'd it's",
+   "ids": [
+    57,
+    5248,
+    1326,
+    982,
+    392,
+    2316,
+    502,
+    3543,
+    1041,
+    3060,
+    384,
+    6737,
+    357,
+    506
+   ],
+   "decoded": "I'm don't we're they've she'll he'd it's"
+  },
+  {
+   "text": "I'M DON'T",
+   "ids": [
+    57,
+    23,
+    61,
+    422,
+    2154,
+    23,
+    68
+   ],
+   "decoded": "I'M DON'T"
+  },
+  {
+   "text": "x  ' 12ab",
+   "ids": [
+    104,
+    216,
+    637,
+    216,
+    33,
+    34,
+    369
+   ],
+   "decoded": "x  ' 12ab"
+  },
+  {
+   "text": "a\n\nb  \n  c   ",
+   "ids": [
+    81,
+    198,
+    198,
+    82,
+    256,
+    3805,
+    265,
+    333
+   ],
+   "decoded": "a\n\nb  \n  c   "
+  },
+  {
+   "text": "\t\ttabs\r\n",
+   "ids": [
+    197,
+    197,
+    100,
+    7366,
+    2738
+   ],
+   "decoded": "\t\ttabs\r\n"
+  },
+  {
+   "text": "\u65e5\u672c\u8a9e\u306e\u30c6\u30ad\u30b9\u30c8",
+   "ids": [
+    23274,
+    115,
+    40993,
+    179,
+    120,
+    248,
+    26453,
+    11100,
+    224,
+    10391,
+    251,
+    10391,
+    134,
+    11100,
+    226
+   ],
+   "decoded": "\u65e5\u672c\u8a9e\u306e\u30c6\u30ad\u30b9\u30c8"
+  },
+  {
+   "text": "\ud83d\ude42\ud83d\udc4d\ud83c\udffd emoji",
+   "ids": [
+    10813,
+    38887,
+    10813,
+    235,
+    231,
+    10813,
+    233,
+    138,
+    649,
+    33777
+   ],
+   "decoded": "\ud83d\ude42\ud83d\udc4d\ud83c\udffd emoji"
+  },
+  {
+   "text": "\u0661\u0662\u0663 \u0664\u0665 \u216b \u00bd",
+   "ids": [
+    164,
+    111,
+    164,
+    112,
+    164,
+    113,
+    216,
+    164,
+    114,
+    164,
+    115,
+    216,
+    173,
+    223,
+    121,
+    216,
+    16738
+   ],
+   "decoded": "\u0661\u0662\u0663 \u0664\u0665 \u216b \u00bd"
+  },
+  {
+   "text": "na\u00efve caf\u00e9 r\u00e9sum\u00e9 \u0395\u03bb\u03bb\u03b7\u03bd\u03b9\u03ba\u03ac \u0420\u0443\u0441\u0441\u043a\u0438\u0439",
+   "ids": [
+    3546,
+    46494,
+    37366,
+    412,
+    2756,
+    5422,
+    2756,
+    5664,
+    239,
+    17162,
+    17162,
+    25723,
+    11517,
+    12001,
+    21118,
+    26112,
+    5470,
+    250,
+    14714,
+    9382,
+    39511,
+    7872,
+    24958
+   ],
+   "decoded": "na\u00efve caf\u00e9 r\u00e9sum\u00e9 \u0395\u03bb\u03bb\u03b7\u03bd\u03b9\u03ba\u03ac \u0420\u0443\u0441\u0441\u043a\u0438\u0439"
+  },
+  {
+   "text": "\u0645\u0631\u062d\u0628\u0627 \u0628\u0627\u0644\u0639\u0627\u0644\u0645",
+   "ids": [
+    21706,
+    20602,
+    44626,
+    31462,
+    10805,
+    45726,
+    22208,
+    34966,
+    22208,
+    21706
+   ],
+   "decoded": "\u0645\u0631\u062d\u0628\u0627 \u0628\u0627\u0644\u0639\u0627\u0644\u0645"
+  },
+  {
+   "text": "a<|im_start|>b<|im_end|>c",
+   "ids": [
+    81,
+    1,
+    82,
+    2,
+    83
+   ],
+   "decoded": "a<|im_start|>b<|im_end|>c"
+  },
+  {
+   "text": "<|endoftext|><|endoftext|>",
+   "ids": [
+    0,
+    0
+   ],
+   "decoded": "<|endoftext|><|endoftext|>"
+  },
+  {
+   "text": "<|endoftext",
+   "ids": [
+    44,
+    108,
+    486,
+    1714,
+    2692
+   ],
+   "decoded": "<|endoftext"
+  },
+  {
+   "text": "def f(x):\n    return x**2  # comment\n",
+   "ids": [
+    1604,
+    275,
+    24,
+    104,
+    727,
+    472,
+    1003,
+    1792,
+    828,
+    34,
+    216,
+    907,
+    5189,
+    198
+   ],
+   "decoded": "def f(x):\n    return x**2  # comment\n"
+  },
+  {
+   "text": "    leading spaces",
+   "ids": [
+    333,
+    2899,
+    5600
+   ],
+   "decoded": "    leading spaces"
+  },
+  {
+   "text": "\u00a0nbsp\u3000ideographic\u2028sep",
+   "ids": [
+    15442,
+    94,
+    32093,
+    12109,
+    218,
+    489,
+    4551,
+    321,
+    118,
+    29070
+   ],
+   "decoded": "\u00a0nbsp\u3000ideographic\u2028sep"
+  },
+  {
+   "text": "Mixed123abc456",
+   "ids": [
+    61,
+    13609,
+    33,
+    34,
+    35,
+    25276,
+    36,
+    37,
+    38
+   ],
+   "decoded": "Mixed123abc456"
+  },
+  {
+   "text": "$$$ !!! ??? ... ---",
+   "ids": [
+    9212,
+    20,
+    5728,
+    10095,
+    9148,
+    16693,
+    4563,
+    21749
+   ],
+   "decoded": "$$$ !!! ??? ... ---"
+  },
+  {
+   "text": "https://example.com/path?q=1&r=2",
+   "ids": [
+    4687,
+    1742,
+    7434,
+    30,
+    824,
+    31,
+    1537,
+    47,
+    97,
+    45,
+    33,
+    22,
+    98,
+    45,
+    34
+   ],
+   "decoded": "https://example.com/path?q=1&r=2"
+  },
+  {
+   "text": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+   "ids": [
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880,
+    46880
+   ],
+   "decoded": "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+  },
+  {
+   "text": "First Citizen:\nBefore we proceed any further, hear me speak.",
+   "ids": [
+    5345,
+    32062,
+    42,
+    198,
+    6121,
+    392,
+    7219,
+    750,
+    2030,
+    28,
+    4875,
+    549,
+    3287,
+    30
+   ],
+   "decoded": "First Citizen:\nBefore we proceed any further, hear me speak."
+  },
+  {
+   "text": "!\u0004!",
+   "ids": [
+    10095
+   ],
+   "decoded": "!!"
+  }
+ ]
+}
