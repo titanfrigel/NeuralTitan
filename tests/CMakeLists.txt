@@ -202,6 +202,22 @@ add_cli_usage(cli_usage_sizes_not_a_number "bench;matmul;--sizes;abc")
 add_cli_usage(cli_usage_sizes_trailing_comma "bench;matmul;--sizes;256,")
 add_cli_usage(cli_usage_repeat_zero "bench;matmul;--repeat;0")
 
+# Byte-level BPE training. Its output is the tokenizer of later CLI tests
+# (FIXTURES_REQUIRED bpe_tokenizer).
+add_test(NAME cli_tokenizer_train_bpe
+  COMMAND $<TARGET_FILE:titan> tokenizer train --type bpe
+    --corpus ${CLI_FIXTURES}/tiny_corpus.txt --vocab 300
+    --out ${CLI_OUT}/bpe/tokenizer.json)
+set_tests_properties(cli_tokenizer_train_bpe PROPERTIES
+  PASS_REGULAR_EXPRESSION "vocab_size [0-9]+\nmerges [0-9]+\ntime [0-9.]+ s"
+  FIXTURES_SETUP bpe_tokenizer)
+
+set(CLI_TOK_ARGS "tokenizer;train;--corpus;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/bpe_usage/tokenizer.json")
+add_cli_usage(cli_usage_bpe_without_vocab "${CLI_TOK_ARGS};--type;bpe")
+add_cli_usage(cli_usage_char_with_vocab "${CLI_TOK_ARGS};--type;char;--vocab;300")
+add_cli_usage(cli_usage_vocab_256 "${CLI_TOK_ARGS};--type;bpe;--vocab;256")
+add_cli_usage(cli_usage_vocab_not_a_number "${CLI_TOK_ARGS};--type;bpe;--vocab;x")
+
 # With every CUDA device hidden, --device cuda must fail before writing --out.
 add_test(NAME cli_train_cuda_no_gpu
   COMMAND ${CMAKE_COMMAND}

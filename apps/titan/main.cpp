@@ -22,6 +22,8 @@ int usage() {
     std::cerr << "usage: titan --version | info\n"
                  "       titan tokenizer train --type char --corpus <file> "
                  "--out <tok.json>\n"
+                 "       titan tokenizer train --type bpe --corpus <file> "
+                 "--vocab N --out <tok.json>\n"
                  "       titan train --config <cfg.json> --data <corpus.txt> "
                  "--out <dir> [--tokenizer <tok.json>] [--steps N] "
                  "[--stop-at N] [--device cpu|cuda] "

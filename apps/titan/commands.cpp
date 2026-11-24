@@ -27,6 +27,7 @@
 #include "runtime/generator.hpp"
 #include "runtime/sampler.hpp"
 #include "runtime/trainer.hpp"
+#include "tokenizer/bpe_trainer.hpp"
 #include "tokenizer/char_tokenizer.hpp"
 
 namespace titan::cli {
@@ -40,6 +41,10 @@ constexpr float kSampleTemperature = 0.8f;
 constexpr float kGenerateTemperature = 0.8f;
 constexpr float kGenerateTopP = 0.9f;
 constexpr std::int64_t kGenerateMaxNew = 500;
+// titan tokenizer train --type bpe: <|endoftext|> and the 256 bytes, up to
+// 2^20 tokens.
+constexpr std::int64_t kMinBpeVocab = 257;
+constexpr std::int64_t kMaxBpeVocab = 1048576;
 
 using Flags = std::map<std::string, std::string, std::less<>>;
 
@@ -243,16 +248,37 @@ void check_stop_at(std::optional<std::int64_t> stop_at, std::int64_t done,
 }  // namespace
 
 void tokenizer_train(std::span<const std::string_view> args) {
-    const Flags flags =
-        parse_flags(args, {"type", "corpus", "out"}, {"type", "corpus", "out"});
-    if (flags.at("type") != "char") throw UsageError{};
+    const Flags flags = parse_flags(args, {"type", "corpus", "out", "vocab"},
+                                    {"type", "corpus", "out"});
+    const std::string& type = flags.at("type");
+    // --vocab is required with bpe and meaningless with char.
+    if (type != "char" && type != "bpe") throw UsageError{};
+    if ((type == "bpe") != flags.contains("vocab")) throw UsageError{};
+    std::int64_t vocab = 0;
+    if (type == "bpe") {
+        vocab = parse_steps(flags.at("vocab"));
+        if (vocab < kMinBpeVocab || vocab > kMaxBpeVocab) throw UsageError{};
+    }
 
     const std::string corpus = io::read_file(flags.at("corpus"));
-    const auto tok = tokenizer::CharTokenizer::build(corpus);
     const fs::path out = flags.at("out");
+    if (type == "char") {
+        const auto tok = tokenizer::CharTokenizer::build(corpus);
+        make_parent_dir(out);
+        io::write_file(out, io::to_json(tok.to_json()));
+        std::cout << "vocab_size " << tok.vocab_size() << '\n';
+        return;
+    }
+    const auto start = std::chrono::steady_clock::now();
+    const auto tok = tokenizer::train_bpe(corpus, vocab);
+    const std::chrono::duration<double> elapsed =
+        std::chrono::steady_clock::now() - start;
     make_parent_dir(out);
     io::write_file(out, io::to_json(tok.to_json()));
-    std::cout << "vocab_size " << tok.vocab_size() << '\n';
+    std::cout << "vocab_size " << tok.vocab_size() << '\n'
+              << "merges " << tok.num_merges() << '\n'
+              << "time " << std::fixed << std::setprecision(2)
+              << elapsed.count() << " s\n";
 }
 
 namespace {

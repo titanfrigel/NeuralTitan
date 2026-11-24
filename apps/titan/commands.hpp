@@ -8,7 +8,10 @@ namespace titan::cli {
 // Thrown for a malformed command line; main prints the usage and exits 2.
 struct UsageError {};
 
-// `titan tokenizer train --type char --corpus <file> --out <tok.json>`.
+// `titan tokenizer train --type char --corpus <file> --out <tok.json>` builds
+// a character tokenizer; `titan tokenizer train --type bpe --corpus <file>
+// --vocab N --out <tok.json>` trains a byte-level BPE tokenizer of at most N
+// tokens, N in [257, 1048576], and prints its size, merges and time.
 // `args` are the arguments after "tokenizer train".
 void tokenizer_train(std::span<const std::string_view> args);
 
