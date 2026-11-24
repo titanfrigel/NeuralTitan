@@ -235,16 +235,14 @@ In step 1, each `a a a` holds `(a, a)` twice, so the pair has 4. The merge repla
 
 ### Never recreate a token
 
-Every merge must create a new token: `from_parts` and `from_json` reject a merge whose result an earlier merge already created (see "Merge order"). The trainer therefore never chooses a pair whose concatenated text is already a token. Such a pair is skipped: it is never merged, and the words keep it as two tokens. Both trainers apply this rule identically.
-
-With left-to-right merging of whole words, the rule never actually fires. Suppose merge `k` were `(A, B)` with `A + B = T`, and an earlier merge `j < k` were `(C, D)` with `C + D = T` and `C ≠ A`.
+Every merge must create a new token: `from_parts` and `from_json` reject a merge whose result an earlier merge already created (see "Merge order"). Training guarantees this by construction. **Invariant:** with whole-word, left-to-right merging, the chosen pair's concatenated text is never already a token. Proof: Suppose merge `k` were `(A, B)` with `A + B = T`, and an earlier merge `j < k` were `(C, D)` with `C + D = T` and `C ≠ A`.
 
 - At step `k`, some word `w` holds `A` and `B` side by side. Tokens only ever grow, so before step `k` no token of `w` crosses either end of the span of `T`.
-- Inside a span that no token crosses, the merges act as they would on the span alone. An occurrence that straddles an end of the span is either skipped, or merged into a token that crosses that end. So before step `k` the span of `T` in `w` is split exactly as `T` alone would be at the same step.
+- Inside a span that no token crosses, the merges act as they would on the span alone. An occurrence that straddles an end of the span is either passed over, because a merge just before it took its first symbol, or merged into a token that crosses that end. So before step `k` the span of `T` in `w` is split exactly as `T` alone would be at the same step.
 - At step `j`, some word `w'` holds `C` and `D` side by side, and by the same argument that is how `T` alone is split at step `j`.
 - So at step `j` the span of `T` in `w` is also `C D`, and merge `j` turns it into the single token `T`. It can never again be `A B`, which contradicts step `k`.
 
-The check stays in the code anyway: it makes the rule that `from_parts` enforces a property of the trainer itself rather than of this argument, and costs one hash lookup per chosen pair. `BpeTrain.MergesCreateDistinctTokens` checks that every created token is distinct and that the trained tokenizer loads from its own file.
+Both trainers assert the invariant when they record a merge (`Tokens::add`): a repeated result would be a bug in the trainer, so it throws an error naming the merge index and the text instead of producing a file that `from_parts` rejects. `BpeTrain.MergesCreateDistinctTokens` checks that every created token is distinct and that the trained tokenizer loads from its own file.
 
 ### The incremental update
 
@@ -271,7 +269,7 @@ The first entry that matches its pair's count is the true best pair. A step then
 | --- | --- |
 | Words | `count_words` in `src/tokenizer/bpe_trainer.cpp` |
 | Merging one word | `merge_word`, the same rule as `BpeTokenizer::encode_piece` |
-| Token texts and the never-recreate rule | `Tokens::creates_new_token`, `Tokens::add` |
+| Token texts and the distinct-result invariant | `Tokens::add` |
 | The naive trainer | `bpe_merges_naive` |
 | Counts, `where`, the lazy heap | `bpe_merges`, `HeapEntry` |
 | The tokenizer | `train_bpe`, which builds the vocabulary and calls `BpeTokenizer::from_parts` |

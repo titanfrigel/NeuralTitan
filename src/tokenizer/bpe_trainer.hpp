@@ -24,7 +24,7 @@ struct BpeMerge {
 //     span is pre-tokenized; the distinct pieces are the words;
 //   - each step merges the pair with the highest count over the words,
 //     weighted by word frequency; ties go to the smallest (left, right);
-//   - a pair whose merged text is already a token is never chosen;
+//   - every merge creates a new token (an internal invariant, checked);
 //   - training stops when the best count is below 2.
 // Keeps the pair counts and, per pair, the words that contain it, and
 // updates them only for the words a merge changes. Throws titan::Error on

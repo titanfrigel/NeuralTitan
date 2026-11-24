@@ -69,7 +69,7 @@ std::vector<Word> count_words(std::string_view corpus) {
 }
 
 // The tokens learned so far, as byte strings, and the set of those strings.
-// <|endoftext|> counts as a token too, so no merge recreates its text.
+// <|endoftext|> counts as a token too.
 class Tokens {
 public:
     Tokens() {
@@ -80,18 +80,18 @@ public:
         known_.insert(bytes_.begin(), bytes_.end());
     }
 
-    // A pair whose concatenated text is already a token is never merged, so
-    // every token has exactly one creator, as from_parts requires
-    // (docs/math/bpe.md, "Training": the corpus words never offer such a
-    // pair, and this check keeps the rule independent of that argument).
-    bool creates_new_token(std::int32_t left, std::int32_t right) const {
-        return !known_.contains(text(left) + text(right));
-    }
-
     // Records the merge of (left, right) and returns the new token's id.
+    // Every merge creates a new token, so every token has exactly one
+    // creator, as from_parts requires. Whole-word, left-to-right merging
+    // guarantees it (docs/math/bpe.md, "Training"); a repeat is a bug.
     std::int32_t add(std::int32_t left, std::int32_t right) {
         std::string merged = text(left) + text(right);
-        known_.insert(merged);
+        TITAN_CHECK(known_.insert(merged).second,
+                    "bpe training: internal invariant broken (docs/math/"
+                    "bpe.md, \"Merge order\" and \"Training\"): merge " +
+                        std::to_string(bytes_.size() - kFirstMergeId) +
+                        " recreates the existing token \"" +
+                        bytes_to_symbols(merged) + "\"");
         bytes_.push_back(std::move(merged));
         return static_cast<std::int32_t>(bytes_.size() - 1);
     }
@@ -179,8 +179,7 @@ std::vector<BpeMerge> bpe_merges_naive(std::string_view corpus,
         // highest count wins a tie.
         std::optional<BpeMerge> best;
         for (const auto& [pair, count] : counts) {
-            if ((!best || count > best->count) &&
-                tokens.creates_new_token(pair.first, pair.second)) {
+            if (!best || count > best->count) {
                 best = BpeMerge{pair.first, pair.second, count};
             }
         }
@@ -244,7 +243,6 @@ std::vector<BpeMerge> bpe_merges(std::string_view corpus,
             continue;
         }
         if (count < 2) break;
-        if (!tokens.creates_new_token(top.left, top.right)) continue;
 
         const std::int32_t merged = tokens.add(top.left, top.right);
         merges.push_back({top.left, top.right, count});
