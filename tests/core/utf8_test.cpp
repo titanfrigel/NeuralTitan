@@ -54,3 +54,25 @@ TITAN_TEST(Utf8, RejectsInvalid) {
     TITAN_EXPECT_THROWS(titan::encode_utf8(0xD800), titan::Error);
     TITAN_EXPECT_THROWS(titan::encode_utf8(0x110000), titan::Error);
 }
+
+// A trailing lead byte with too few continuation bytes is held back; complete
+// text and invalid bytes are not.
+TITAN_TEST(Utf8, CompletePrefix) {
+    TITAN_EXPECT_EQ(titan::utf8_complete_prefix("ab"), std::size_t{2});
+    TITAN_EXPECT_EQ(titan::utf8_complete_prefix("a\xC3"), std::size_t{1});
+    TITAN_EXPECT_EQ(titan::utf8_complete_prefix("a\xE6\x97"), std::size_t{1});
+    TITAN_EXPECT_EQ(titan::utf8_complete_prefix("\xF0\x9F\x99"),
+                    std::size_t{0});
+    TITAN_EXPECT_EQ(titan::utf8_complete_prefix("\xF0\x9F\x99\x82"),
+                    std::size_t{4});
+    TITAN_EXPECT_EQ(titan::utf8_complete_prefix("a\xFF"), std::size_t{2});
+    TITAN_EXPECT_EQ(titan::utf8_complete_prefix("\x80"), std::size_t{1});
+    TITAN_EXPECT_EQ(titan::utf8_complete_prefix(""), std::size_t{0});
+    // Prefixes no full sequence can start with count as complete: an
+    // overlong lead, a surrogate, a value above U+10FFFF.
+    TITAN_EXPECT_EQ(titan::utf8_complete_prefix("a\xC0"), std::size_t{2});
+    TITAN_EXPECT_EQ(titan::utf8_complete_prefix("\xED\xA0"), std::size_t{2});
+    TITAN_EXPECT_EQ(titan::utf8_complete_prefix("\xF4\x90"), std::size_t{2});
+    TITAN_EXPECT_EQ(titan::utf8_complete_prefix("\xE0\x80"), std::size_t{2});
+    TITAN_EXPECT_EQ(titan::utf8_complete_prefix("\xF5"), std::size_t{1});
+}

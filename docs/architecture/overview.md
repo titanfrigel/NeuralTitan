@@ -66,7 +66,7 @@ Library layers, bottom to top:
 | --- | --- | --- | --- |
 | `core` | `Tensor`, `Storage`, `Device`, CUDA caching allocator, seeded RNG, error checking | C++20, CUDA runtime | 0002, 0007 |
 | `io` | JSON parser, safetensors reader, checkpoint binary format, bounds-checked binary reading | C++20 | 0007 |
-| `tokenizer` | Character tokenizer, byte-level BPE (train, encode, decode, load `tokenizer.json`), Unicode category tables | C++20 | 0007 |
+| `tokenizer` | The `Tokenizer` interface and `load_tokenizer`, character tokenizer, byte-level BPE (train, encode, decode, load `tokenizer.json`), Unicode category tables | C++20 | 0007 |
 | `ops` | Device-dispatching operations; `ops/cpu` reference implementations; `ops/cuda` kernels; GEMM through cuBLAS by default, with own naive and tiled kernels selectable | C++20, CUDA, cuBLAS | 0002, 0005, 0007 |
 | `nn` | `Module`, `Parameter`, Embedding, Linear, RMSNorm, LayerNorm, Attention (GQA, RoPE, KV cache), SwiGLU, GeluMLP, TransformerBlock, LMHead, CrossEntropyLoss | C++20 | 0005 |
 | `optim` | AdamW, learning-rate schedules, gradient clipping | C++20 | 0005 |
@@ -130,7 +130,7 @@ sequenceDiagram
 As implemented in M3 (`titan generate` in `apps/titan/commands.cpp`, `runtime::Generator` in `src/runtime/generator.*`):
 
 1. The CLI validates every flag first: a bad `--temp`, `--top-k`, `--top-p`, `--max-new` or `--seed` is a usage error (exit 2) before any file is read.
-2. It reads the checkpoint header (`load_checkpoint(path, nullptr)`), rebuilds the tokenizer from the checkpoint's JSON and encodes the prompt. A damaged file or a character outside the vocabulary fails here, with `error:` on stderr, exit 1 and nothing on stdout.
+2. It reads the checkpoint header (`load_checkpoint(path, nullptr)`), rebuilds the tokenizer from the checkpoint's JSON (`checkpoint_tokenizer`, which returns a `tokenizer::Tokenizer` through `load_tokenizer`, so a character or a BPE tokenizer) and encodes the prompt. A damaged file or a character outside the vocabulary fails here, with `error:` on stderr, exit 1 and nothing on stdout.
 3. It builds the model from the saved config, loads the parameters, moves the model to the device, and only then constructs the `Generator`, whose KV cache is allocated on the model's device.
 4. It echoes the prompt and streams each sampled character to stdout, flushing per token, then writes `tokens/s` to stderr.
 

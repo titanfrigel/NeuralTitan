@@ -60,6 +60,7 @@ target_sources(titan_tests PRIVATE
   tokenizer/bpe_test.cpp
   tokenizer/bpe_trainer_test.cpp
   tokenizer/smollm2_test.cpp
+  tokenizer/tokenizer_test.cpp
   model/config_test.cpp
   model/model_test.cpp
   model/model_cuda_test.cpp

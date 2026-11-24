@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 
 #include "io/json.hpp"
@@ -9,7 +10,7 @@
 #include "model/model.hpp"
 #include "optim/adamw.hpp"
 #include "runtime/trainer.hpp"
-#include "tokenizer/char_tokenizer.hpp"
+#include "tokenizer/tokenizer.hpp"
 
 namespace titan::runtime {
 
@@ -65,10 +66,11 @@ Checkpoint load_checkpoint(const std::filesystem::path& path,
                            model::Model* model);
 
 // The tokenizer stored in `ckpt` (read from `path`), rebuilt with
-// CharTokenizer::from_json. Throws titan::Error naming the file for a
-// malformed tokenizer, or when its vocabulary size differs from
-// ckpt.model.vocab_size, the size the model was built with.
-tokenizer::CharTokenizer checkpoint_tokenizer(const std::filesystem::path& path,
-                                              const Checkpoint& ckpt);
+// tokenizer::load_tokenizer (a CharTokenizer or a BpeTokenizer). Throws
+// titan::Error naming the file for a malformed or unsupported tokenizer, or
+// when its vocabulary size differs from ckpt.model.vocab_size, the size the
+// model was built with.
+std::unique_ptr<tokenizer::Tokenizer> checkpoint_tokenizer(
+    const std::filesystem::path& path, const Checkpoint& ckpt);
 
 }  // namespace titan::runtime

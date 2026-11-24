@@ -28,7 +28,8 @@ Generator::Generator(model::Model& model, SamplerConfig config,
 
 std::vector<std::int32_t> Generator::generate(
     std::vector<std::int32_t> prompt, std::int64_t n_new,
-    const std::function<void(std::int32_t)>& on_token) {
+    const std::function<void(std::int32_t)>& on_token,
+    std::optional<std::int32_t> stop_id) {
     TITAN_CHECK(!prompt.empty(), "Generator::generate: empty prompt");
     TITAN_CHECK(n_new >= 0, "Generator::generate: n_new must be >= 0, got " +
                                 std::to_string(n_new));
@@ -52,6 +53,9 @@ std::vector<std::int32_t> Generator::generate(
     std::int32_t next =
         feed(tail(std::min(static_cast<std::int64_t>(tokens.size()), context)));
     for (std::int64_t i = 0;; ++i) {
+        if (next == stop_id) {
+            break;
+        }
         tokens.push_back(next);
         if (on_token) {
             on_token(next);

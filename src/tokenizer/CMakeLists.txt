@@ -4,6 +4,7 @@ add_library(titan_tokenizer STATIC
   byte_level.cpp
   char_tokenizer.cpp
   pretokenizer.cpp
+  tokenizer.cpp
   unicode_tables.cpp)
 
 target_include_directories(titan_tokenizer PUBLIC "${PROJECT_SOURCE_DIR}/src")

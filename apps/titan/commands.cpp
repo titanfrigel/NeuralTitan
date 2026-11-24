@@ -9,6 +9,7 @@
 #include <iomanip>
 #include <iostream>
 #include <map>
+#include <memory>
 #include <optional>
 #include <string>
 #include <vector>
@@ -29,6 +30,7 @@
 #include "runtime/trainer.hpp"
 #include "tokenizer/bpe_trainer.hpp"
 #include "tokenizer/char_tokenizer.hpp"
+#include "tokenizer/tokenizer.hpp"
 
 namespace titan::cli {
 namespace {
@@ -182,7 +184,7 @@ double time_matmul_ms(Tensor& out, const Tensor& a, const Tensor& b,
 
 // The prompt the sample starts from: a newline when the vocabulary has one,
 // otherwise token 0.
-std::vector<std::int32_t> sample_prompt(const tokenizer::CharTokenizer& tok) {
+std::vector<std::int32_t> sample_prompt(const tokenizer::Tokenizer& tok) {
     try {
         return tok.encode("\n");
     } catch (const Error&) {
@@ -287,7 +289,7 @@ namespace {
 // every checkpoint step. When the run reached its last step, it samples 500
 // characters into <out>/sample.txt exactly as M1 did. Prints the summary.
 void run_training(runtime::Trainer& trainer, model::Model& model,
-                  const tokenizer::CharTokenizer& tok,
+                  const tokenizer::Tokenizer& tok,
                   const runtime::TrainConfig& tc, const fs::path& out,
                   std::optional<std::int64_t> stop_at) {
     const io::JsonValue tok_json = tok.to_json();
@@ -405,7 +407,8 @@ void train_resume(const Flags& flags, Device device,
 
     // The header first: it gives the model config to build.
     const runtime::Checkpoint header = runtime::load_checkpoint(path, nullptr);
-    const auto tok = runtime::checkpoint_tokenizer(path, header);
+    const std::unique_ptr<tokenizer::Tokenizer> tok =
+        runtime::checkpoint_tokenizer(path, header);
     runtime::TrainConfig tc = header.train;
     tc.device = device;
     check_stop_at(stop_at, header.state.step, tc.steps);
@@ -416,10 +419,10 @@ void train_resume(const Flags& flags, Device device,
                     std::to_string(header.state.step) + " of " +
                     std::to_string(tc.steps));
     const std::vector<std::int32_t> train_tokens =
-        read_run_tokens(out / "train.bin", tok.vocab_size(),
+        read_run_tokens(out / "train.bin", tok->vocab_size(),
                         header.state.train_tokens, header.state.train_crc32);
     const std::vector<std::int32_t> val_tokens =
-        read_run_tokens(out / "val.bin", tok.vocab_size(),
+        read_run_tokens(out / "val.bin", tok->vocab_size(),
                         header.state.val_tokens, header.state.val_crc32);
 
     model::Model model(header.model);
@@ -428,7 +431,7 @@ void train_resume(const Flags& flags, Device device,
                              std::move(ckpt.state));
     std::cout << "resumed " << path.string() << " after step "
               << header.state.step << '\n';
-    run_training(trainer, model, tok, tc, out, stop_at);
+    run_training(trainer, model, *tok, tc, out, stop_at);
 }
 
 }  // namespace
@@ -493,17 +496,18 @@ void generate(std::span<const std::string_view> args) {
     // or an unknown character fails here, before any output.
     const fs::path path = flags.at("checkpoint");
     const runtime::Checkpoint header = runtime::load_checkpoint(path, nullptr);
-    const auto tok = runtime::checkpoint_tokenizer(path, header);
+    const std::unique_ptr<tokenizer::Tokenizer> tok =
+        runtime::checkpoint_tokenizer(path, header);
     std::vector<std::int32_t> prompt;
     if (flags.contains("prompt")) {
         try {
-            prompt = tok.encode(flags.at("prompt"));
+            prompt = tok->encode(flags.at("prompt"));
         } catch (const Error& e) {
             throw Error(std::string("--prompt: ") + e.what());
         }
         TITAN_CHECK(!prompt.empty(), "--prompt is empty");
     } else {
-        prompt = sample_prompt(tok);
+        prompt = sample_prompt(*tok);
     }
 
     // 3. The model, moved to its device before the Generator builds its
@@ -516,9 +520,9 @@ void generate(std::span<const std::string_view> args) {
     if (use_cache) generator.emplace(model, sampler, generation_seed);
 
     // 4. Echo the prompt, then stream each token as soon as it is sampled.
-    std::cout << tok.decode(prompt) << std::flush;
+    std::cout << tok->decode(prompt) << std::flush;
     const auto on_token = [&](std::int32_t id) {
-        std::cout << tok.decode(std::span(&id, 1)) << std::flush;
+        std::cout << tok->decode(std::span(&id, 1)) << std::flush;
     };
     const auto start = std::chrono::steady_clock::now();
     if (generator) {

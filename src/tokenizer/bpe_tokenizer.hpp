@@ -11,6 +11,7 @@
 #include <vector>
 
 #include "io/json.hpp"
+#include "tokenizer/tokenizer.hpp"
 
 namespace titan::tokenizer {
 
@@ -19,7 +20,7 @@ namespace titan::tokenizer {
 // of the text is pre-tokenized, mapped to the byte-level alphabet and merged
 // by rank. It reads and writes the Hugging Face `tokenizer.json` layout,
 // restricted to the features SmolLM2 uses.
-class BpeTokenizer {
+class BpeTokenizer : public Tokenizer {
 public:
     // Validates a Hugging Face `tokenizer.json` document. Every unsupported or
     // malformed field throws titan::Error naming the field path, such as
@@ -44,21 +45,21 @@ public:
 
     // The `tokenizer.json` layout with "version": "1.0", SmolLM2's
     // pre-tokenizer and decoder, and merges written as "a b" strings.
-    io::JsonValue to_json() const;
+    io::JsonValue to_json() const override;
 
     // A byte whose symbol is not in the vocabulary yields no id, as in the
     // reference (unk_token is null). Throws titan::Error naming the byte
     // offset of invalid UTF-8.
-    std::vector<std::int32_t> encode(std::string_view text) const;
+    std::vector<std::int32_t> encode(std::string_view text) const override;
 
     // Raw bytes, which may end in the middle of a UTF-8 sequence. An added
     // token yields its literal text. Throws on an id outside
     // [0, vocab_size()), naming the id and its position.
-    std::string decode(std::span<const std::int32_t> ids) const;
+    std::string decode(std::span<const std::int32_t> ids) const override;
 
-    std::int64_t vocab_size() const;
+    std::int64_t vocab_size() const override;
     // The id of the added token <|endoftext|>, if there is one.
-    std::optional<std::int32_t> eos_id() const;
+    std::optional<std::int32_t> eos_id() const override;
     std::int64_t num_merges() const;
 
 private:

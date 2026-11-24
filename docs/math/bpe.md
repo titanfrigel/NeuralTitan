@@ -284,6 +284,8 @@ The first entry that matches its pair's count is the true best pair. A step then
 
 Every id is checked against `[0, vocab_size)` first, and an error names the id and its position. The result is raw bytes. A sequence of ids can end inside a multi-byte character, since one token may hold only the first byte of `é`. So the output is not guaranteed to be valid UTF-8, and callers that print it must handle an incomplete tail.
 
+A streaming caller keeps the decoded bytes it has not printed yet and prints only `utf8_complete_prefix(bytes)` of them (`src/core/utf8.*`). That length leaves out a trailing lead byte with fewer continuation bytes than it announces, at most 3 bytes, when some valid sequence starts with them: `aæ` prints `a` and keeps `æ` until the next token completes `日`. Invalid bytes, including a lead no valid sequence starts with (`C0`, `C1`, `F5`…`FF`, or `E0 80`, `ED A0`, `F0 80`, `F4 90`, which would be overlong, a surrogate or above U+10FFFF), count as complete, so the caller never holds them back forever.
+
 `decode(encode(text)) = text` holds for every valid UTF-8 text whose bytes all have a symbol: the merges only regroup symbols, and the added tokens and pieces cover the text in order. A dropped byte is lost.
 
 ## File format
@@ -318,3 +320,5 @@ Unknown keys are rejected at the top level, in `model` and in each added token. 
 | The merge loop | `BpeTokenizer::encode_piece` |
 | Decode | `BpeTokenizer::decode`, through `bytes_` (id → bytes) |
 | Writing | `BpeTokenizer::to_json` |
+| The common interface | `tokenizer::Tokenizer` in `src/tokenizer/tokenizer.hpp`, which `CharTokenizer` and `BpeTokenizer` implement (`encode`, `decode`, `vocab_size`, `eos_id`, `to_json`); `load_tokenizer` picks the type from the document: `"type": "char"` or an object `model` |
+| End of text | `BpeTokenizer::eos_id`, the id of the added end-of-text token; `Generator::generate` and `generate_naive` take it as `stop_id` and stop before emitting it |

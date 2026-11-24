@@ -26,4 +26,13 @@ std::string encode_utf8(char32_t code_point);
 // True when `text` is entirely valid UTF-8.
 bool is_valid_utf8(std::string_view text);
 
+// The length of `bytes` without a trailing incomplete UTF-8 sequence: a lead
+// byte followed by fewer continuation bytes than it needs (at most 3 bytes in
+// all) that some valid sequence starts with. Streaming output prints this
+// prefix and keeps the rest until the next bytes arrive. Invalid bytes, and
+// trailing bytes no valid sequence starts with (an overlong lead, the start
+// of a surrogate or of a value above U+10FFFF), count as complete, so they
+// are never held back.
+std::size_t utf8_complete_prefix(std::string_view bytes);
+
 }  // namespace titan
