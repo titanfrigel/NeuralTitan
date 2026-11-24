@@ -580,6 +580,36 @@ TITAN_TEST(Bpe, FromJsonRejectsAddedByteSymbol) {
     TITAN_EXPECT(contains(msg, "symbol of a single byte"));
 }
 
+TITAN_TEST(Bpe, FromJsonRejectsDuplicateMergeResult) {
+    // The reviewer's file: merges 2 (ab c) and 4 (a bc) both create abc.
+    // The reference encodes "abcabc" as abca, bc; merging by rank over all
+    // occurrences would give abc, abc, so the file is refused.
+    const std::string msg = from_json_error(
+        make_doc({"bc", "ab", "abc", "abca"},
+                 string_merges({"b c", "a b", "ab c", "abc a", "a bc"})));
+    TITAN_EXPECT(contains(msg, "model.merges[4]"));
+    TITAN_EXPECT(contains(msg, "result \"abc\""));
+    TITAN_EXPECT(contains(msg, "model.merges[2]"));
+
+    // The same merges through from_parts: bc = 257, ab = 258, abc = 259,
+    // abca = 260.
+    std::vector<std::string> vocab = {"<|endoftext|>"};
+    for (unsigned b = 0; b < 256; ++b) {
+        vocab.push_back(sym(static_cast<unsigned char>(b)));
+    }
+    for (const char* text : {"bc", "ab", "abc", "abca"}) {
+        vocab.emplace_back(text);
+    }
+    TITAN_EXPECT_THROWS(BpeTokenizer::from_parts(vocab,
+                                                 {{byte_id('b'), byte_id('c')},
+                                                  {byte_id('a'), byte_id('b')},
+                                                  {258, byte_id('c')},
+                                                  {259, byte_id('a')},
+                                                  {byte_id('a'), 257}},
+                                                 {0}),
+                        titan::Error);
+}
+
 TITAN_TEST(Bpe, FromJsonRejectsMergeBeforeItsPart) {
     // The reviewer's file: "ab a" uses ab before "a b" creates it. The
     // reference encodes "abab" as aba, b; merging by rank over all

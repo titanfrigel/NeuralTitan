@@ -138,16 +138,31 @@ Overlaps are resolved left to right: with only the merge `a a`, `aaa` becomes `a
 
 The reference merges one occurrence at a time. It keeps a priority queue of adjacent pairs ordered by rank, then by position. After each merge it adds the two new pairs that the merged token forms with its neighbours. Merging every occurrence of the lowest-ranked pair at once gives the same result only under a **precondition** on the merge list:
 
-> Each part of merge `i` is either a single byte symbol or the result of some merge `j < i`.
+> 1. Every part of merge `i` that has more than one symbol is the result of some merge `j < i`.
+> 2. No token is the result of two merges.
 
-Under it, suppose the reference has just merged an occurrence of the pair of rank `r` into the token `t`. Every new pair contains `t`. A merge that uses `t` as a part comes after a merge that creates `t`, and the first merge creating `t` has rank at most `r`. So every new pair ranks above `r`. The queue therefore pops all remaining occurrences of rank `r`, from left to right, before anything else. An occurrence that overlaps a merged one has lost a symbol and is skipped. That is exactly what one step of our loop does.
+Together they give every multi-symbol token exactly one creator, and every merge that uses a token as a part ranks after that creator.
 
-Without the precondition the two orders can differ. Take the vocabulary `a`, `b`, `ab`, `aba` and the merges `ab a` (rank 0), then `a b` (rank 1). For `"abab"`:
+Under the precondition, suppose the reference has just merged an occurrence of the pair of rank `r` into the token `t`. Every new pair contains `t`. The merge of rank `r` is `t`'s only creator, so any merge that uses `t` as a part has a rank above `r`. So every new pair ranks above `r`. The queue therefore pops all remaining occurrences of rank `r`, from left to right, before anything else. An occurrence that overlaps a merged one has lost a symbol and is skipped. That is exactly what one step of our loop does.
+
+Without either condition the two orders can differ. Both counterexamples below were checked against `tokenizers` 0.23.3.
+
+**Condition 1.** Take the vocabulary `a`, `b`, `ab`, `aba` and the merges `ab a` (rank 0), then `a b` (rank 1). For `"abab"`:
 
 - the reference merges the first `a b` into `ab`, which forms `ab a` of rank 0. That pair ranks below the second `a b`, so it is merged next. The result is `aba`, `b`;
 - merging every `a b` at once gives `ab`, `ab`.
 
-`from_json` and `from_parts` therefore reject a merge with a multi-symbol part that no earlier merge creates, naming `model.merges[i]` and the part. A merge list produced by training always meets the precondition, because a token exists only once its merge has been learned. SmolLM2's 48900 merges meet it.
+**Condition 2.** Take the vocabulary `bc`, `ab`, `abc`, `abca` and the merges `b c` (0), `a b` (1), `ab c` (2), `abc a` (3), `a bc` (4). Here `abc` has two creators, ranks 2 and 4. For `"abcabc"`:
+
+- the reference merges both `b c` (rank 0), giving `a bc a bc`. Both `a b` pairs are now gone. It then merges the first `a bc` (rank 4) into `abc`, which forms `abc a` of rank 3. That pair ranks below the remaining `a bc`, so it is merged next. The result is `abca`, `bc`;
+- merging every `a bc` at once gives `abc`, `abc`.
+
+`from_json` and `from_parts` therefore reject:
+
+- a merge with a multi-symbol part that no earlier merge creates, naming `model.merges[i]` and the part;
+- a merge whose result an earlier merge already creates, naming `model.merges[i]`, the result and the earlier merge.
+
+SmolLM2's 48900 merges meet both conditions: each multi-symbol part is created earlier, and no result repeats. NeuralTitan's own trainer must meet them as well, since `from_parts` checks them: every merge it learns has to add a new token.
 
 For the same reason an added token may not be the symbol of a single byte. The reference would use the added token's id for that byte inside BPE, while NeuralTitan keeps added tokens out of BPE.
 
@@ -198,7 +213,7 @@ The tokenizer is stored in Hugging Face's `tokenizer.json` layout, restricted to
 | `model.dropout`, `unk_token`, `continuing_subword_prefix`, `end_of_word_suffix` | `null` or absent |
 | `model.fuse_unk`, `byte_fallback`, `ignore_merges` | `false` or absent |
 | `model.vocab` | an object from text to id. The ids are integers, unique and dense over `[0, n)`, with 1 ≤ n < 2^31. Every entry that is not an added token is a non-empty string of byte-level symbols. |
-| `model.merges` | each entry is `"a b"`, with exactly one space, or `["a", "b"]`. `a`, `b` and `a+b` are ordinary vocabulary entries, and no pair appears twice. A part of more than one symbol is the result of an earlier merge (see "Merge order"). The index is the rank. |
+| `model.merges` | each entry is `"a b"`, with exactly one space, or `["a", "b"]`. `a`, `b` and `a+b` are ordinary vocabulary entries, and no pair appears twice. A part of more than one symbol is the result of an earlier merge, and no two merges have the same result (see "Merge order"). The index is the rank. |
 | `added_tokens[i]` | `content` is non-empty, is not the symbol of a single byte, and is in the vocabulary; `id` equals its vocabulary id. `special` is `true`; `normalized`, `lstrip`, `rstrip` and `single_word` are `false`. No content appears twice. |
 
 Unknown keys are rejected at the top level, in `model` and in each added token. Ids are bounds-checked before anything is indexed or allocated.

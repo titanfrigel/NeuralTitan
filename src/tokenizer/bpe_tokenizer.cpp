@@ -368,10 +368,11 @@ BpeTokenizer BpeTokenizer::from_json(const JsonValue& json) {
     merges.reserve(merge_entries.size());
     std::unordered_map<std::uint64_t, std::size_t> rank_of;
     rank_of.reserve(merge_entries.size());
-    // Tokens produced by the merges read so far. A multi-symbol part must be
-    // one of them, so that encode's merge order equals the reference's
+    // creator[id] is the index of the merge that produces token id, or -1.
+    // A multi-symbol part must already have a creator, and no token may have
+    // two, so that encode's merge order equals the reference's
     // (docs/math/bpe.md, "Merge order").
-    std::vector<bool> created(n, false);
+    std::vector<std::int64_t> creator(n, -1);
     for (std::size_t i = 0; i < merge_entries.size(); ++i) {
         const std::string path = element(merges_path, i);
         const auto [left, right] = merge_parts(merge_entries[i], path);
@@ -389,17 +390,25 @@ BpeTokenizer BpeTokenizer::from_json(const JsonValue& json) {
         }
         for (int k = 0; k < 2; ++k) {
             const auto part = static_cast<std::size_t>(part_ids[k]);
-            if (!is_byte[part] && !created[part]) {
+            if (!is_byte[part] && creator[part] < 0) {
                 fail(path, "part " + quoted(texts[k]) +
                                " is not the result of an earlier merge");
             }
         }
-        created[static_cast<std::size_t>(part_ids[2])] = true;
         const auto [it, inserted] =
             rank_of.emplace(pair_key(part_ids[0], part_ids[1]), i);
         if (!inserted) {
             fail(path, "duplicate of " + element(merges_path, it->second));
         }
+        std::int64_t& result_creator =
+            creator[static_cast<std::size_t>(part_ids[2])];
+        if (result_creator >= 0) {
+            fail(path, "result " + quoted(texts[2]) +
+                           " is already created by " +
+                           element(merges_path,
+                                   static_cast<std::size_t>(result_creator)));
+        }
+        result_creator = static_cast<std::int64_t>(i);
         merges.emplace_back(part_ids[0], part_ids[1]);
     }
 
@@ -468,7 +477,8 @@ BpeTokenizer BpeTokenizer::from_parts(
     }
 
     tok.merge_of_.reserve(merges.size());
-    std::vector<bool> created(n, false);  // see from_json
+    // Tokens produced by the merges so far; see from_json.
+    std::vector<bool> created(n, false);
     for (std::size_t rank = 0; rank < merges.size(); ++rank) {
         const auto [left, right] = merges[rank];
         TITAN_CHECK(in_range(left) && in_range(right) &&
@@ -492,6 +502,10 @@ BpeTokenizer BpeTokenizer::from_parts(
                 !tok.is_added_[static_cast<std::size_t>(merged->second)],
             "BpeTokenizer::from_parts: the result of merge " +
                 std::to_string(rank) + " is not in the vocabulary");
+        TITAN_CHECK(!created[static_cast<std::size_t>(merged->second)],
+                    "BpeTokenizer::from_parts: merge " + std::to_string(rank) +
+                        " creates token " + std::to_string(merged->second) +
+                        ", which an earlier merge already creates");
         created[static_cast<std::size_t>(merged->second)] = true;
         const bool inserted =
             tok.merge_of_
