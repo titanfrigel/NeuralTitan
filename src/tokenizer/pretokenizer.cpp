@@ -119,11 +119,13 @@ std::vector<std::string_view> pretokenize(std::string_view text) {
         }
     };
 
-    // Stage 1: every \p{N} code point is its own piece; the runs between
-    // them go through stage 2. A single number is left whole by stage 2.
+    // Stage 1: every is_numeric code point is its own piece; the runs
+    // between them go through stage 2. The Digits stage has its own number
+    // class, a superset of \p{N} (see unicode_tables.hpp), so stage 2 never
+    // sees a number; is_number stays in the scanner to keep the pattern whole.
     std::size_t run_begin = 0;
     for (std::size_t i = 0; i < n; ++i) {
-        if (!is_number(d.cps[i])) continue;
+        if (!is_numeric(d.cps[i])) continue;
         split(run_begin, i);
         emit(i, i + 1);
         run_begin = i + 1;

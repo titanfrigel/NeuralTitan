@@ -324,4 +324,4 @@ Enforcement:
 | Logits drift from the reference beyond 1e-3 (summation order) | Risk | FP32 reference, per-layer intermediate dumps from `tools/` to localize divergence, accumulation order documented. Revisit at M5. |
 | CUDA code untested in CI (no GPU runners) | Debt | CUDA tests run locally before merge, and the PR template asks for it. Revisit if a GPU runner becomes available. |
 | GPT-2 preset, mixed precision, autograd graph, MoE deferred | Debt (planned) | Listed as later stages in the spec. v1 interfaces (config schema, per-block types) leave room for them. |
-| Unicode tables generated from a pinned `UnicodeData.txt` version | Debt | Record the Unicode version in the generated file header; regenerate if tokenizer fixtures disagree. |
+| Unicode tables probed from a pinned `tokenizers` version (0.23.3) | Debt | The generator refuses any other version and the generated header records it; regenerate when the reference is upgraded or if tokenizer fixtures disagree. |

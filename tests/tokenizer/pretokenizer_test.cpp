@@ -12,6 +12,7 @@ namespace {
 
 using titan::tokenizer::is_letter;
 using titan::tokenizer::is_number;
+using titan::tokenizer::is_numeric;
 using titan::tokenizer::is_whitespace;
 using titan::tokenizer::pretokenize;
 
@@ -47,6 +48,23 @@ TITAN_TEST(Unicode, Classes) {
     }
 }
 
+TITAN_TEST(Unicode, MatchesReferenceVersion) {
+    // Unicode 16 additions that Python's unicodedata (15.1) does not know but
+    // the reference classifies: numbers isolated by the Digits stage, and
+    // letters matched by \p{L}.
+    TITAN_EXPECT(is_numeric(0x1CCF1));  // outlined digit one
+    TITAN_EXPECT(is_numeric(0x16D71));  // Kirat Rai digit one
+    TITAN_EXPECT(is_numeric(0x10D41));  // Garay digit one
+    TITAN_EXPECT(is_numeric(0x1E5F1));  // Ol Onal digit one
+    TITAN_EXPECT(is_letter(0x11380));   // Tulu-Tigalari letter a
+    TITAN_EXPECT(is_letter(0x10D50));   // Garay capital letter
+    // The two number classes differ: the Digits stage (Rust's
+    // char::is_numeric) knows the digits U+11DE0..U+11DE9, added after
+    // Unicode 16; Oniguruma's \p{N} does not.
+    TITAN_EXPECT(is_numeric(0x11DE0));
+    TITAN_EXPECT(!is_number(0x11DE0));
+}
+
 TITAN_TEST(Pretokenize, Reference) {
     // Observed from Hugging Face tokenizers with SmolLM2's pre-tokenizer.
     const std::vector<std::string> expected = {"x", " ", " '", " ",
@@ -75,6 +93,23 @@ TITAN_TEST(Pretokenize, DigitsAreIndividual) {
     // x, then U+0661 and U+0662 (Arabic-Indic one and two).
     const std::vector<std::string> arabic = {"x", "\xD9\xA1", "\xD9\xA2"};
     TITAN_EXPECT(pieces("x\xD9\xA1\xD9\xA2") == arabic);
+}
+
+TITAN_TEST(Pretokenize, Unicode16) {
+    // Observed from Hugging Face tokenizers: Unicode 16 digits are split one
+    // per piece, and Unicode 16 letters join the letter run.
+    const std::vector<std::string> outlined = {"\xF0\x9C\xB3\xB1",
+                                               "\xF0\x9C\xB3\xB2"};
+    TITAN_EXPECT(pieces("\xF0\x9C\xB3\xB1\xF0\x9C\xB3\xB2") == outlined);
+    const std::vector<std::string> kirat = {"\xF0\x96\xB5\xB1",
+                                            "\xF0\x96\xB5\xB2"};
+    TITAN_EXPECT(pieces("\xF0\x96\xB5\xB1\xF0\x96\xB5\xB2") == kirat);
+    // a, U+11380 or U+10D50, then b written as \x62, since a literal b would
+    // extend the hex escape before it.
+    const std::string tulu = "a\xF0\x91\x8E\x80\x62";
+    TITAN_EXPECT(pieces(tulu) == std::vector<std::string>{tulu});
+    const std::string garay = "a\xF0\x90\xB5\x90\x62";
+    TITAN_EXPECT(pieces(garay) == std::vector<std::string>{garay});
 }
 
 TITAN_TEST(Pretokenize, ConcatenationIsInput) {
