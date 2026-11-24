@@ -9,6 +9,8 @@
 
 namespace titan::nn {
 
+class KvCache;
+
 // A learnable tensor and its gradient accumulator. `name` is the dotted path
 // of the parameter, for example "blocks.0.mlp.gate_proj.weight".
 struct Parameter {
@@ -27,6 +29,14 @@ struct ForwardContext {
     bool training = true;
     // Position of the first token of the input in its sequence.
     std::int64_t pos_offset = 0;
+    // The KV cache of an inference forward, or nullptr. With a cache,
+    // attention appends the keys and values of the input at pos_offset, which
+    // must equal kv_cache->length(), and attends over all cached positions.
+    // Only inference mode (training == false) may use a cache.
+    KvCache* kv_cache = nullptr;
+    // The index of the block being run, so attention finds its cache layer.
+    // Model::forward sets it before each block.
+    std::int64_t layer = 0;
 };
 
 // A differentiable layer. forward() in training mode caches what backward()

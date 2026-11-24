@@ -34,13 +34,15 @@ If the entries of `q` and `k` are independent with mean 0 and variance 1, `q·k`
 
 ### The causal mask
 
-Within one sequence, position `t` must not depend on later tokens. The mask is applied inside `causal_softmax` before the row maximum, by skipping the masked keys rather than adding `−∞` (see [Softmax](softmax.md) for why the order matters). In M1 the full sequence is processed at once, `p₀ = 0`, and the visible keys of row `t` are `0 … t`. A nonzero `p₀` only makes sense with a KV cache (M3), where the `T` queries are the last of a longer key sequence; without one, `causal_softmax` rejects it because `Tk = T < T + p₀`.
+Within one sequence, position `t` must not depend on later tokens. The mask is applied inside `causal_softmax` before the row maximum, by skipping the masked keys rather than adding `−∞` (see [Softmax](softmax.md) for why the order matters). In M1 the full sequence is processed at once, `p₀ = 0`, and the visible keys of row `t` are `0 … t`. A nonzero `p₀` only makes sense with a KV cache (M3), where the `T` queries are the last of a longer key sequence; without one, `causal_softmax` rejects it because `Tk = T < T + p₀`. Since M3, attention itself rejects a nonzero `p₀` without a cache first, with "pos_offset > 0 needs a KV cache" (`tests/nn/kv_cache_test.cpp`).
 
 ### The layout ops
 
 `swap_dims_1_2`: `y[a, c, b, d] = x[a, b, c, d]`. Only the order of elements changes; each innermost row of `D` values moves as one block.
 
 `repeat_kv`: `y[b, h, t, i] = x[b, ⌊h / n_rep⌋, t, i]`. Output heads `g·n_rep … g·n_rep + n_rep − 1` are copies of KV head `g`.
+
+`kv_write` and `kv_read` lay out the KV cache used during generation. A cache is a `(B, H, Tmax, hd)` tensor whose first rows hold the keys or values of the positions already processed. `kv_write(cache, x, pos)` sets `cache[b, h, pos + t, i] = x[b, h, t, i]` for `t = 0 … T − 1`, in place; every other row keeps its value. `kv_read(cache, len)` returns a new tensor with `y[b, h, t, i] = cache[b, h, t, i]` for `t < len`. Both only copy, so they have no backward pass: they are inference only, and training never uses a cache.
 
 ## Backward derivation
 
@@ -79,6 +81,8 @@ Layout ops:
 - `swap_dims_1_2(x)`: `x` is `(A, B, C, D)`, the result is `(A, C, B, D)`.
 - `repeat_kv(x, n_rep)`: `x` is `(B, Hkv, T, hd)`, the result is `(B, Hkv·n_rep, T, hd)`. Requires `n_rep ≥ 1`.
 - `repeat_kv_backward(dy, n_rep)`: `dy` is `(B, H, T, hd)` with `n_rep` dividing `H`; the result is `(B, H / n_rep, T, hd)`.
+- `kv_write(cache, x, pos)`: `cache` is `(B, H, Tmax, hd)` and `x` is `(B, H, T, hd)`; `B`, `H` and `hd` must match, `pos ≥ 0` and `pos + T ≤ Tmax`. Both tensors must be on the same device. Nothing is returned.
+- `kv_read(cache, len)`: `cache` is `(B, H, Tmax, hd)`, the result is `(B, H, len, hd)`. Requires `1 ≤ len ≤ Tmax`.
 
 The constructor requires `H ≥ 1`, `Hkv ≥ 1`, `dim % H = 0`, `H % Hkv = 0` and, with RoPE, an even `hd` (RoPE rotates pairs `(i, i + hd/2)`).
 
@@ -89,9 +93,10 @@ The layer stores `P`, a full `(B, H, T, T)` tensor, for the backward pass. That 
 ## Mapping to code
 
 - `nn::Attention`, `nn::PositionEncoding`: `src/nn/attention.hpp`, `src/nn/attention.cpp`. `forward` follows steps 1-8 with the step numbers in comments and caches `Q`, `K_r` (after RoPE), `V_r`, `P` and `p₀`; `backward` reverses them. The helpers `split_heads` and `merge_heads` do the reshape and swap of steps 2 and 7.
-- Layout ops, public interface and checks: `src/ops/layout.hpp`, `src/ops/layout.cpp`. The dispatch routes by the tensor's device to the CPU or the CUDA implementation. Reference implementation: `src/ops/cpu/layout.cpp`; CUDA kernels: `src/ops/cuda/layout.cu`.
+- Layout ops, public interface and checks: `src/ops/layout.hpp`, `src/ops/layout.cpp`. The dispatch routes by the tensor's device to the CPU or the CUDA implementation. Reference implementation: `src/ops/cpu/layout.cpp`; CUDA kernels: `src/ops/cuda/layout.cu`. `kv_write` and `kv_read` live in the same files.
 - Scores and values use `ops::matmul` with its transpose flags, the scale `ops::scale_`, the mask and normalization `ops::causal_softmax` and `ops::softmax_backward`, and the rotation `ops::rope` and `ops::rope_backward`.
-- Tests: `tests/ops/cuda/layout_parity_test.cpp` compares the three layout ops with the CPU for `n_rep` 1 and 3. `tests/ops/layout_test.cpp` covers the layout ops (values, the inverse property of the swap, group sums, gradient checks, error cases). `tests/nn/attention_test.cpp` checks causality, the output of a one-head case with identity projections against an explicit `softmax(q kᵀ/√2) v`, finite-difference gradients of the input and all four weights for MHA with RoPE, GQA with RoPE and GQA without position encoding, and the head-configuration errors.
+- With `ForwardContext::kv_cache` set, `forward` stores the rotated keys and the values in the cache and attends over every cached position; see [KV cache](kv-cache.md).
+- Tests: `tests/ops/cuda/layout_parity_test.cpp` compares the three layout ops with the CPU for `n_rep` 1 and 3. `tests/ops/layout_test.cpp` covers the layout ops (values, the inverse property of the swap, group sums, gradient checks, error cases) and the cache ops (write then read, untouched rows, overflow and shape errors); the parity file also compares `kv_write` and `kv_read` with the CPU and checks that a CPU `x` with a CUDA cache is rejected. `tests/nn/attention_test.cpp` checks causality, the output of a one-head case with identity projections against an explicit `softmax(q kᵀ/√2) v`, finite-difference gradients of the input and all four weights for MHA with RoPE, GQA with RoPE and GQA without position encoding, and the head-configuration errors.
 
 ## CUDA implementation
 
@@ -100,5 +105,7 @@ The layout kernels are in `src/ops/cuda/layout.cu`. None uses an atomic, and the
 - `swap_dims_1_2`: output index `o` is decoded as `(a, c, b, d)` in row-major order of the `(A, C, B, D)` output, and the thread copies `x[a, b, c, d]`.
 - `repeat_kv`: `o` is split into a flat `(batch, output head)` index and an offset inside the `(T, hd)` head. Output head `h` reads KV head `⌊h / n_rep⌋` of the same batch entry.
 - `repeat_kv_backward`: one thread per element of `dx`. It adds the `n_rep` copies `dy[b, g·n_rep + r]` for `r = 0, 1, …, n_rep − 1`, in that order, so no atomics are needed. The sum is kept in `double` and rounded once, as on the CPU, so the CPU and the GPU agree to the last `float` bit for any `n_rep`.
+- `kv_write`: one thread per element of `x`. `o` is decoded as `(bh, t, i)`, with `bh` the flat `(batch, head)` index, and the thread stores `x[o]` at `cache[(bh·Tmax + pos + t)·hd + i]`. Distinct elements of `x` map to distinct cache elements, so threads never write the same location.
+- `kv_read`: one thread per element of the result; `o` is decoded as `(bh, t, i)` and the thread copies `cache[(bh·Tmax + t)·hd + i]`.
 
 Differences from the CPU: the copies are exact and the backward sum has the CPU's order and precision, so the results are identical. Only the memory access pattern differs, which affects speed, not values.

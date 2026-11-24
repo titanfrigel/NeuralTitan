@@ -125,3 +125,65 @@ TITAN_TEST(Layout, InvalidArgumentsThrow) {
     TITAN_EXPECT_THROWS(ops::repeat_kv_backward(x, 0), titan::Error);
     TITAN_EXPECT_THROWS(ops::repeat_kv_backward(x, 3), titan::Error);
 }
+
+TITAN_TEST(KvOps, WriteThenReadIsIdentity) {
+    // cache is (B=2, H=3, Tmax=6, hd=4); x fills positions 2..4 (T=3).
+    Tensor cache = Tensor::zeros({2, 3, 6, 4}, Device::CPU);
+    const Tensor x = iota({2, 3, 3, 4});
+    ops::kv_write(cache, x, 2);
+    const Tensor back = ops::kv_read(cache, 5);
+    TITAN_EXPECT(back.shape() == titan::Shape({2, 3, 5, 4}));
+    const std::vector<float> v = back.to_vector();
+    const std::vector<float> xv = x.to_vector();
+    for (int b = 0; b < 2; ++b) {
+        for (int h = 0; h < 3; ++h) {
+            for (int t = 0; t < 5; ++t) {
+                for (int d = 0; d < 4; ++d) {
+                    const float got = v[((b * 3 + h) * 5 + t) * 4 + d];
+                    const float expected =
+                        t < 2 ? 0.0f : xv[((b * 3 + h) * 3 + (t - 2)) * 4 + d];
+                    TITAN_EXPECT_EQ(got, expected);
+                }
+            }
+        }
+    }
+}
+
+TITAN_TEST(KvOps, WriteLeavesOtherRowsUntouched) {
+    Tensor cache = Tensor::empty({2, 2, 4, 3}, Device::CPU);
+    for (std::int64_t i = 0; i < cache.numel(); ++i) {
+        cache.data()[i] = -1.0f - static_cast<float>(i);
+    }
+    const std::vector<float> before = cache.to_vector();
+    const Tensor x = iota({2, 2, 1, 3});
+    ops::kv_write(cache, x, 2);
+    const std::vector<float> after = cache.to_vector();
+    for (int bh = 0; bh < 4; ++bh) {
+        for (int t = 0; t < 4; ++t) {
+            for (int d = 0; d < 3; ++d) {
+                const int i = (bh * 4 + t) * 3 + d;
+                const float expected =
+                    t == 2 ? static_cast<float>(bh * 3 + d) : before[i];
+                TITAN_EXPECT_EQ(after[i], expected);
+            }
+        }
+    }
+}
+
+TITAN_TEST(KvOps, RejectsOverflow) {
+    Tensor cache = Tensor::zeros({1, 2, 4, 3}, Device::CPU);
+    const Tensor x = Tensor::zeros({1, 2, 2, 3}, Device::CPU);
+    TITAN_EXPECT_THROWS(ops::kv_write(cache, x, 3), titan::Error);
+    TITAN_EXPECT_THROWS(ops::kv_write(cache, x, -1), titan::Error);
+    ops::kv_write(cache, x, 2);  // exactly fits
+    const Tensor bad_hd = Tensor::zeros({1, 2, 2, 4}, Device::CPU);
+    TITAN_EXPECT_THROWS(ops::kv_write(cache, bad_hd, 0), titan::Error);
+    const Tensor bad_h = Tensor::zeros({1, 3, 2, 3}, Device::CPU);
+    TITAN_EXPECT_THROWS(ops::kv_write(cache, bad_h, 0), titan::Error);
+    const Tensor rank3 = Tensor::zeros({2, 2, 3}, Device::CPU);
+    TITAN_EXPECT_THROWS(ops::kv_write(cache, rank3, 0), titan::Error);
+    TITAN_EXPECT_THROWS(ops::kv_read(cache, 0), titan::Error);
+    TITAN_EXPECT_THROWS(ops::kv_read(cache, 5), titan::Error);
+    TITAN_EXPECT_THROWS(ops::kv_read(rank3, 1), titan::Error);
+    TITAN_EXPECT_EQ(ops::kv_read(cache, 4).numel(), std::int64_t{24});
+}

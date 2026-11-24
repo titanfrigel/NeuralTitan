@@ -14,6 +14,8 @@ struct BlockConfig {
     std::int64_t n_heads{}, n_kv_heads{}, mlp_hidden{};
     std::string mlp /*swiglu|gelu*/, norm /*rmsnorm|layernorm*/,
         position /*rope|none*/;
+
+    bool operator==(const BlockConfig&) const = default;
 };
 
 // The architecture of a decoder-only model. final_norm is "rmsnorm" or
@@ -24,6 +26,8 @@ struct ModelConfig {
     bool tied_embeddings = true;
     std::string final_norm = "rmsnorm";
     std::vector<BlockConfig> blocks;
+
+    bool operator==(const ModelConfig&) const = default;
 };
 
 // Parses and validates the "model" section of a config file. Required:
@@ -40,6 +44,12 @@ struct ModelConfig {
 ModelConfig parse_model_config(const io::JsonValue& model_section,
                                std::int64_t vocab_size);
 
+// The "model" section for `c`, with an explicit "blocks" array, so that
+// parse_model_config(model_config_to_json(c), c.vocab_size) == c. vocab_size is
+// not written: it comes from the tokenizer. Floats are written as the doubles
+// they convert to, which the writer prints in the shortest round-trip form.
+io::JsonValue model_config_to_json(const ModelConfig& c);
+
 // A Llama-style model (FR-7): n_layers identical blocks with SwiGLU of hidden
 // size round_up(8·dim/3, 8), RMSNorm, RoPE, an RMSNorm final norm and tied
 // embeddings. Throws titan::Error for a non-positive size or an invalid head
@@ -47,5 +57,20 @@ ModelConfig parse_model_config(const io::JsonValue& model_section,
 ModelConfig llama_style(std::int64_t vocab, std::int64_t dim,
                         std::int64_t n_layers, std::int64_t n_heads,
                         std::int64_t n_kv_heads, std::int64_t context);
+
+// The most parameters parameter_count accepts: three times as many values (a
+// model and its two AdamW moments) still fit in an int64 with room to spare.
+inline constexpr std::int64_t kMaxParameters = std::int64_t{1} << 60;
+
+// The number of parameter values a Model built from `c` holds (equal to
+// Model(c).num_parameters()), computed from the config alone, without
+// allocating anything, so a loader can bound a config read from a file before
+// building the model. Per block: two norms (dim values each, twice that for
+// LayerNorm with its bias), q and o projections of dim·dim, k and v of
+// dim·n_kv_heads·head_dim, and the MLP (SwiGLU: 3·dim·hidden; GELU:
+// 2·dim·hidden + hidden + dim for the biases). Plus the embedding V·dim, the
+// final norm, and an untied head V·dim. Throws titan::Error when the count
+// exceeds kMaxParameters.
+std::int64_t parameter_count(const ModelConfig& c);
 
 }  // namespace titan::model

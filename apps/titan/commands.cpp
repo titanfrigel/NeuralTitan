@@ -23,6 +23,8 @@
 #include "model/config.hpp"
 #include "model/model.hpp"
 #include "ops/matmul.hpp"
+#include "runtime/checkpoint.hpp"
+#include "runtime/generator.hpp"
 #include "runtime/sampler.hpp"
 #include "runtime/trainer.hpp"
 #include "tokenizer/char_tokenizer.hpp"
@@ -34,24 +36,38 @@ namespace fs = std::filesystem;
 
 constexpr std::int64_t kSampleChars = 500;
 constexpr float kSampleTemperature = 0.8f;
+// titan generate defaults.
+constexpr float kGenerateTemperature = 0.8f;
+constexpr float kGenerateTopP = 0.9f;
+constexpr std::int64_t kGenerateMaxNew = 500;
 
 using Flags = std::map<std::string, std::string, std::less<>>;
 
-// Parses `--name value` pairs. Every flag must be in `allowed`, appear at most
-// once and carry a value; each flag in `required` must be present.
+// Parses `--name value` pairs and bare `--name` switches. Every flag must be
+// in `allowed` or `switches` and appear at most once; each flag in `allowed`
+// carries a value (a switch is stored with an empty one), and each flag in
+// `required` must be present.
 Flags parse_flags(std::span<const std::string_view> args,
                   const std::vector<std::string>& allowed,
-                  const std::vector<std::string>& required) {
+                  const std::vector<std::string>& required,
+                  const std::vector<std::string>& switches = {}) {
     Flags flags;
-    for (std::size_t i = 0; i < args.size(); i += 2) {
-        const std::string name(args[i]);
-        const bool known =
-            name.starts_with("--") &&
-            std::ranges::find(allowed, name.substr(2)) != allowed.end();
-        if (!known || i + 1 >= args.size()) throw UsageError{};
-        if (!flags.emplace(name.substr(2), std::string(args[i + 1])).second) {
+    std::size_t i = 0;
+    while (i < args.size()) {
+        const std::string arg(args[i]);
+        if (!arg.starts_with("--")) throw UsageError{};
+        const std::string name = arg.substr(2);
+        std::string value;
+        if (std::ranges::find(switches, name) != switches.end()) {
+            i += 1;
+        } else if (std::ranges::find(allowed, name) != allowed.end() &&
+                   i + 1 < args.size()) {
+            value = std::string(args[i + 1]);
+            i += 2;
+        } else {
             throw UsageError{};
         }
+        if (!flags.emplace(name, std::move(value)).second) throw UsageError{};
     }
     for (const std::string& name : required) {
         if (!flags.contains(name)) throw UsageError{};
@@ -74,6 +90,22 @@ std::int64_t parse_steps(std::string_view text) {
 std::int64_t parse_positive(std::string_view text) {
     const std::int64_t value = parse_steps(text);
     if (value < 1) throw UsageError{};
+    return value;
+}
+
+std::uint64_t parse_seed(std::string_view text) {
+    std::uint64_t value = 0;
+    const char* end = text.data() + text.size();
+    const auto [ptr, ec] = std::from_chars(text.data(), end, value);
+    if (ec != std::errc{} || ptr != end) throw UsageError{};
+    return value;
+}
+
+float parse_float(std::string_view text) {
+    float value = 0.0f;
+    const char* end = text.data() + text.size();
+    const auto [ptr, ec] = std::from_chars(text.data(), end, value);
+    if (ec != std::errc{} || ptr != end) throw UsageError{};
     return value;
 }
 
@@ -153,6 +185,61 @@ std::vector<std::int32_t> sample_prompt(const tokenizer::CharTokenizer& tok) {
     }
 }
 
+// The device from --device, or the GPU when there is one; checks that a
+// requested GPU exists and applies --gemm. Runs before any file is read.
+Device select_device(const Flags& flags) {
+    const Device device = flags.contains("device")
+                              ? parse_device(flags.at("device"))
+                              : (cuda_available() ? Device::CUDA : Device::CPU);
+    std::optional<ops::GemmBackend> gemm;
+    if (flags.contains("gemm")) gemm = parse_gemm(flags.at("gemm"));
+    if (device == Device::CUDA) require_gpu();
+    // CPU matmuls ignore the GEMM backend, so only cuBLAS (the default, a
+    // no-op) is accepted with the CPU.
+    if (device == Device::CPU && gemm && *gemm != ops::GemmBackend::cublas) {
+        throw Error("--gemm needs --device cuda");
+    }
+    if (gemm) ops::set_gemm_backend(*gemm);
+    return device;
+}
+
+// A token file of a run directory, with every id checked against the
+// vocabulary (the model does not validate its inputs), and the stream checked
+// against the length and CRC-32 the checkpoint saved for it.
+std::vector<std::int32_t> read_run_tokens(const fs::path& path,
+                                          std::int64_t vocab_size,
+                                          std::int64_t saved_count,
+                                          std::uint32_t saved_crc32) {
+    std::vector<std::int32_t> ids = io::read_token_file(path);
+    for (std::size_t i = 0; i < ids.size(); ++i) {
+        TITAN_CHECK(ids[i] >= 0 && ids[i] < vocab_size,
+                    path.string() + ": token " + std::to_string(i) + " is " +
+                        std::to_string(ids[i]) + ", outside [0, " +
+                        std::to_string(vocab_size) + ")");
+    }
+    const auto count = static_cast<std::int64_t>(ids.size());
+    const std::uint32_t crc = runtime::token_crc32(ids);
+    TITAN_CHECK(count == saved_count && crc == saved_crc32,
+                path.string() + ": the token file changed since the " +
+                    "checkpoint (" + std::to_string(count) +
+                    " tokens with crc32 " + std::to_string(crc) +
+                    ", the checkpoint has " + std::to_string(saved_count) +
+                    " tokens with crc32 " + std::to_string(saved_crc32) + ")");
+    return ids;
+}
+
+// Checks --stop-at against the run: after the last completed step and no
+// later than the last step.
+void check_stop_at(std::optional<std::int64_t> stop_at, std::int64_t done,
+                   std::int64_t steps) {
+    if (!stop_at) return;
+    TITAN_CHECK(*stop_at > done && *stop_at <= steps,
+                "--stop-at " + std::to_string(*stop_at) +
+                    " must be after the last completed step " +
+                    std::to_string(done) + " and at most train.steps " +
+                    std::to_string(steps));
+}
+
 }  // namespace
 
 void tokenizer_train(std::span<const std::string_view> args) {
@@ -168,25 +255,58 @@ void tokenizer_train(std::span<const std::string_view> args) {
     std::cout << "vocab_size " << tok.vocab_size() << '\n';
 }
 
-void train(std::span<const std::string_view> args) {
-    const Flags flags = parse_flags(
-        args, {"config", "data", "out", "tokenizer", "steps", "device", "gemm"},
-        {"config", "data", "out"});
-    // The device defaults to the GPU when there is one.
-    const Device device = flags.contains("device")
-                              ? parse_device(flags.at("device"))
-                              : (cuda_available() ? Device::CUDA : Device::CPU);
-    std::optional<ops::GemmBackend> gemm;
-    if (flags.contains("gemm")) gemm = parse_gemm(flags.at("gemm"));
+namespace {
+
+// Runs `trainer` (up to --stop-at when given), saving <out>/latest.ckpt at
+// every checkpoint step. When the run reached its last step, it samples 500
+// characters into <out>/sample.txt exactly as M1 did. Prints the summary.
+void run_training(runtime::Trainer& trainer, model::Model& model,
+                  const tokenizer::CharTokenizer& tok,
+                  const runtime::TrainConfig& tc, const fs::path& out,
+                  std::optional<std::int64_t> stop_at) {
+    const io::JsonValue tok_json = tok.to_json();
+    trainer.on_checkpoint([&](std::int64_t) {
+        runtime::save_checkpoint(
+            out / "latest.ckpt", model,
+            runtime::Checkpoint{model.config(), tc, tok_json, trainer.state()});
+    });
+    const runtime::TrainResult result = trainer.run(stop_at);
+    const bool finished = trainer.state().step == tc.steps;
+
+    if (finished) {
+        // The sample prompt: a newline when the vocabulary has one, else
+        // token 0. The sample keeps the M1 sampler and seed so that every
+        // milestone's sample.txt stays reproducible.
+        Rng sample_rng(tc.seed);
+        const std::vector<std::int32_t> ids =
+            runtime::generate_naive(model, sample_prompt(tok), kSampleChars,
+                                    kSampleTemperature, sample_rng);
+        const std::string sample = tok.decode(ids);
+        io::write_file(out / "sample.txt", sample);
+        std::cout << "--- sample ---\n" << sample << "\n--- end sample ---\n";
+    } else {
+        std::cout << "stopped after step " << trainer.state().step
+                  << "; continue with titan train --resume " << out.string()
+                  << '\n';
+    }
+
+    std::cout << "device " << to_string(tc.device);
+    if (tc.device == Device::CUDA) {
+        std::cout << ", gemm " << gemm_name(ops::gemm_backend());
+    }
+    std::cout << '\n';
+    std::cout << "params " << model.num_parameters() << '\n';
+    std::cout << "time " << result.seconds << " s\n";
+    if (finished) {
+        std::cout << "final val_loss " << result.final_val_loss << '\n';
+    }
+}
+
+// `titan train --config ... --data ... --out ...`: a new run.
+void train_new(const Flags& flags, Device device,
+               std::optional<std::int64_t> stop_at) {
     std::optional<std::int64_t> steps;
     if (flags.contains("steps")) steps = parse_steps(flags.at("steps"));
-    if (device == Device::CUDA) require_gpu();
-    // CPU matmuls ignore the GEMM backend, so only cuBLAS (the default, a
-    // no-op) is accepted with the CPU.
-    if (device == Device::CPU && gemm && *gemm != ops::GemmBackend::cublas) {
-        throw Error("--gemm needs --device cuda");
-    }
-    if (gemm) ops::set_gemm_backend(*gemm);
 
     const fs::path out = flags.at("out");
     const io::JsonValue config =
@@ -194,8 +314,8 @@ void train(std::span<const std::string_view> args) {
     const std::string corpus = io::read_file(flags.at("data"));
 
     // Everything that can fail on bad input runs before anything is written
-    // or any training starts: config sections, tokenizer, corpus split, model,
-    // trainer and the sample prompt.
+    // or any training starts: config sections, --stop-at, tokenizer, corpus
+    // split, model and trainer.
 
     // 1. The tokenizer: loaded, or built from the corpus (and saved below).
     const bool load_tokenizer = flags.contains("tokenizer");
@@ -213,6 +333,7 @@ void train(std::span<const std::string_view> args) {
     }
     runtime::TrainConfig tc = runtime::parse_train_config(train_section);
     tc.device = device;
+    check_stop_at(stop_at, 0, tc.steps);
 
     // 2. Encode once; the last val_fraction of the tokens validates.
     std::vector<std::int32_t> tokens = tok.encode(corpus);
@@ -238,36 +359,156 @@ void train(std::span<const std::string_view> args) {
     model.init(init_rng);
     runtime::Trainer trainer(model, tc, train_tokens, val_tokens, std::cout);
 
-    // 4. The sample prompt: a newline when the vocabulary has one, else token
-    // 0.
-    const std::vector<std::int32_t> prompt = sample_prompt(tok);
-
-    // 5. Only now write the outputs, then train.
+    // 4. Only now write the outputs, then train.
     fs::create_directories(out);
     if (!load_tokenizer) {
         io::write_file(out / "tokenizer.json", io::to_json(tok.to_json()));
     }
     io::write_token_file(out / "train.bin", train_tokens);
     io::write_token_file(out / "val.bin", val_tokens);
-    const runtime::TrainResult result = trainer.run();
+    run_training(trainer, model, tok, tc, out, stop_at);
+}
 
-    // Sample 500 characters from the prompt.
-    Rng sample_rng(tc.seed);
-    const std::vector<std::int32_t> ids = runtime::generate_naive(
-        model, prompt, kSampleChars, kSampleTemperature, sample_rng);
-    const std::string sample = tok.decode(ids);
-    io::write_file(out / "sample.txt", sample);
-    std::cout << "--- sample ---\n" << sample << "\n--- end sample ---\n";
+// `titan train --resume <dir>`: continues the run saved in <dir>/latest.ckpt
+// on <dir>/train.bin and <dir>/val.bin. The configs and the tokenizer come
+// from the checkpoint; only the device is chosen anew.
+void train_resume(const Flags& flags, Device device,
+                  std::optional<std::int64_t> stop_at) {
+    const fs::path out = flags.at("resume");
+    const fs::path path = out / "latest.ckpt";
 
-    // 6. Summary.
-    std::cout << "device " << to_string(device);
-    if (device == Device::CUDA) {
-        std::cout << ", gemm " << gemm_name(ops::gemm_backend());
+    // The header first: it gives the model config to build.
+    const runtime::Checkpoint header = runtime::load_checkpoint(path, nullptr);
+    const auto tok = runtime::checkpoint_tokenizer(path, header);
+    runtime::TrainConfig tc = header.train;
+    tc.device = device;
+    check_stop_at(stop_at, header.state.step, tc.steps);
+    // A finished run has no step left: resuming it would only rewrite the
+    // sample and report a validation loss that was never computed.
+    TITAN_CHECK(header.state.step < tc.steps,
+                path.string() + ": the run already finished at step " +
+                    std::to_string(header.state.step) + " of " +
+                    std::to_string(tc.steps));
+    const std::vector<std::int32_t> train_tokens =
+        read_run_tokens(out / "train.bin", tok.vocab_size(),
+                        header.state.train_tokens, header.state.train_crc32);
+    const std::vector<std::int32_t> val_tokens =
+        read_run_tokens(out / "val.bin", tok.vocab_size(),
+                        header.state.val_tokens, header.state.val_crc32);
+
+    model::Model model(header.model);
+    runtime::Checkpoint ckpt = runtime::load_checkpoint(path, &model);
+    runtime::Trainer trainer(model, tc, train_tokens, val_tokens, std::cout,
+                             std::move(ckpt.state));
+    std::cout << "resumed " << path.string() << " after step "
+              << header.state.step << '\n';
+    run_training(trainer, model, tok, tc, out, stop_at);
+}
+
+}  // namespace
+
+void train(std::span<const std::string_view> args) {
+    const Flags flags =
+        parse_flags(args,
+                    {"config", "data", "out", "tokenizer", "steps", "device",
+                     "gemm", "resume", "stop-at"},
+                    {});
+    const bool resume = flags.contains("resume");
+    if (resume) {
+        // The run directory supplies everything these would set.
+        for (const char* name :
+             {"config", "data", "out", "tokenizer", "steps"}) {
+            if (flags.contains(name)) throw UsageError{};
+        }
+    } else {
+        for (const char* name : {"config", "data", "out"}) {
+            if (!flags.contains(name)) throw UsageError{};
+        }
     }
-    std::cout << '\n';
-    std::cout << "params " << model.num_parameters() << '\n';
-    std::cout << "time " << result.seconds << " s\n";
-    std::cout << "final val_loss " << result.final_val_loss << '\n';
+    std::optional<std::int64_t> stop_at;
+    if (flags.contains("stop-at")) {
+        stop_at = parse_positive(flags.at("stop-at"));
+    }
+    const Device device = select_device(flags);
+    if (resume) {
+        train_resume(flags, device, stop_at);
+    } else {
+        train_new(flags, device, stop_at);
+    }
+}
+
+void generate(std::span<const std::string_view> args) {
+    const Flags flags = parse_flags(args,
+                                    {"checkpoint", "prompt", "max-new", "temp",
+                                     "top-k", "top-p", "seed", "device"},
+                                    {"checkpoint"}, {"no-cache"});
+
+    // 1. Every flag, before any file is read.
+    runtime::SamplerConfig sampler{kGenerateTemperature, 0, kGenerateTopP};
+    if (flags.contains("temp")) {
+        sampler.temperature = parse_float(flags.at("temp"));
+    }
+    if (flags.contains("top-k")) sampler.top_k = parse_steps(flags.at("top-k"));
+    if (flags.contains("top-p")) sampler.top_p = parse_float(flags.at("top-p"));
+    try {
+        runtime::validate(sampler);
+    } catch (const Error&) {
+        throw UsageError{};
+    }
+    const std::int64_t max_new = flags.contains("max-new")
+                                     ? parse_positive(flags.at("max-new"))
+                                     : kGenerateMaxNew;
+    std::optional<std::uint64_t> seed;
+    if (flags.contains("seed")) seed = parse_seed(flags.at("seed"));
+    const bool use_cache = !flags.contains("no-cache");
+    const Device device = select_device(flags);
+
+    // 2. The checkpoint header, the tokenizer and the prompt: a damaged file
+    // or an unknown character fails here, before any output.
+    const fs::path path = flags.at("checkpoint");
+    const runtime::Checkpoint header = runtime::load_checkpoint(path, nullptr);
+    const auto tok = runtime::checkpoint_tokenizer(path, header);
+    std::vector<std::int32_t> prompt;
+    if (flags.contains("prompt")) {
+        try {
+            prompt = tok.encode(flags.at("prompt"));
+        } catch (const Error& e) {
+            throw Error(std::string("--prompt: ") + e.what());
+        }
+        TITAN_CHECK(!prompt.empty(), "--prompt is empty");
+    } else {
+        prompt = sample_prompt(tok);
+    }
+
+    // 3. The model, moved to its device before the Generator builds its
+    // cache there.
+    model::Model model(header.model);
+    runtime::load_checkpoint(path, &model);
+    model.to(device);
+    const std::uint64_t generation_seed = seed.value_or(header.train.seed);
+    std::optional<runtime::Generator> generator;
+    if (use_cache) generator.emplace(model, sampler, generation_seed);
+
+    // 4. Echo the prompt, then stream each token as soon as it is sampled.
+    std::cout << tok.decode(prompt) << std::flush;
+    const auto on_token = [&](std::int32_t id) {
+        std::cout << tok.decode(std::span(&id, 1)) << std::flush;
+    };
+    const auto start = std::chrono::steady_clock::now();
+    if (generator) {
+        generator->generate(prompt, max_new, on_token);
+    } else {
+        Rng rng(generation_seed);
+        runtime::generate_naive(model, prompt, max_new, sampler, rng, on_token);
+    }
+    const std::chrono::duration<double> elapsed =
+        std::chrono::steady_clock::now() - start;
+    std::cout << '\n' << std::flush;
+    std::cerr << std::fixed << std::setprecision(1) << "tokens/s "
+              << static_cast<double>(max_new) / elapsed.count() << " ("
+              << max_new << " tokens in " << std::setprecision(3)
+              << elapsed.count() << " s, " << (use_cache ? "cache" : "no cache")
+              << ", " << to_string(device) << ")\n";
 }
 
 void bench(std::span<const std::string_view> args) {

@@ -48,16 +48,22 @@ target_sources(titan_tests PRIVATE
   nn/attention_test.cpp
   nn/block_test.cpp
   nn/module_parity_test.cpp
+  nn/kv_cache_test.cpp
   optim/optim_test.cpp
+  optim/adamw_test.cpp
   io/json_test.cpp
   io/token_file_test.cpp
+  io/checkpoint_file_test.cpp
   tokenizer/char_tokenizer_test.cpp
   model/config_test.cpp
   model/model_test.cpp
   model/model_cuda_test.cpp
   runtime/data_loader_test.cpp
+  runtime/train_config_test.cpp
   runtime/trainer_test.cpp
+  runtime/checkpoint_test.cpp
   runtime/sampler_test.cpp
+  runtime/generator_test.cpp
 )
 # The CUDA tests call the runtime directly, so they link cudart themselves
 # instead of relying on titan_core, which keeps it private.
@@ -209,3 +215,136 @@ add_test(NAME cli_bench_matmul_smoke
 set_tests_properties(cli_bench_matmul_smoke PROPERTIES
   PASS_REGULAR_EXPRESSION "tiled"
   SKIP_REGULAR_EXPRESSION "no CUDA device available")
+
+# Checkpoints, resume and generation (M3). cli_train_writes_checkpoint leaves
+# the checkpoint that the generate tests read.
+add_test(NAME cli_train_writes_checkpoint
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    -DCONFIG=${CLI_FIXTURES}/checkpoint-config.json
+    -DDATA=${CLI_FIXTURES}/tiny_corpus.txt
+    -DOUT_DIR=${CLI_OUT}/ckpt
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_checkpoint.cmake)
+set_tests_properties(cli_train_writes_checkpoint PROPERTIES
+  FIXTURES_SETUP cli_checkpoint)
+
+add_test(NAME cli_train_resume
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    -DCONFIG=${CLI_FIXTURES}/checkpoint-config.json
+    -DDATA=${CLI_FIXTURES}/tiny_corpus.txt
+    -DSTEPS=6
+    -DSTOP_AT=2
+    -DOUT_DIR=${CLI_OUT}/resume
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_train_resume.cmake)
+
+add_cli_usage(cli_train_resume_rejects_config
+  "train;--resume;${CLI_OUT}/ckpt;--config;${CLI_FIXTURES}/tiny-config.json")
+add_cli_usage(cli_usage_stop_at_zero "${CLI_TRAIN_ARGS};--device;cpu;--stop-at;0")
+add_cli_failure(cli_train_stop_at_beyond_steps "--stop-at 21 must be after"
+  "train;--config;${CLI_FIXTURES}/tiny-config.json;--data;${CLI_FIXTURES}/tiny_corpus.txt;--out;${CLI_OUT}/stop_beyond;--device;cpu;--stop-at;21")
+add_cli_failure(cli_train_resume_finished_stop_at
+  "--stop-at 20 must be after the last completed step 20"
+  "train;--resume;${CLI_OUT}/ckpt;--device;cpu;--stop-at;20")
+set_tests_properties(cli_train_resume_finished_stop_at PROPERTIES
+  FIXTURES_REQUIRED cli_checkpoint)
+
+set(CLI_CKPT ${CLI_OUT}/ckpt/latest.ckpt)
+set(CLI_PROMPT "First Citizen:")
+
+add_test(NAME cli_generate_smoke
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    -DCHECKPOINT=${CLI_CKPT}
+    "-DPROMPT=${CLI_PROMPT}"
+    -DMAX_NEW=20
+    "-DARGS=--device;cpu"
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_generate.cmake)
+
+add_test(NAME cli_generate_greedy_cache_equals_nocache
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    -DCHECKPOINT=${CLI_CKPT}
+    "-DPROMPT=${CLI_PROMPT}"
+    -DMAX_NEW=40
+    "-DARGS=--device;cpu;--temp;0"
+    "-DCOMPARE_ARGS=--device;cpu;--temp;0;--no-cache"
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_generate.cmake)
+
+add_test(NAME cli_generate_cuda_smoke
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    -DCHECKPOINT=${CLI_CKPT}
+    "-DPROMPT=${CLI_PROMPT}"
+    -DMAX_NEW=20
+    "-DARGS=--device;cuda"
+    -DCUDA_SKIP=ON
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_generate.cmake)
+set_tests_properties(cli_generate_cuda_smoke PROPERTIES
+  SKIP_REGULAR_EXPRESSION "no CUDA device available")
+
+# Runtime failures that must exit 1 with "error:" and print nothing to
+# stdout.
+function(add_cli_quiet_failure name pattern)
+  add_test(NAME ${name}
+    COMMAND ${CMAKE_COMMAND}
+      -DEXE=$<TARGET_FILE:titan>
+      "-DARGS=${ARGN}"
+      "-DPATTERN=${pattern}"
+      -DNO_STDOUT=ON
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_failure.cmake)
+endfunction()
+
+add_cli_quiet_failure(cli_generate_unknown_char "error: .*U[+]005A"
+  "generate;--checkpoint;${CLI_CKPT};--prompt;Zounds;--device;cpu")
+add_cli_quiet_failure(cli_generate_missing_checkpoint
+  "error: .*missing[.]ckpt"
+  "generate;--checkpoint;${CLI_OUT}/missing.ckpt;--device;cpu")
+
+# Every bad sampling flag is a usage error, found before the (here missing)
+# checkpoint is read.
+set(CLI_GEN_ARGS "generate;--checkpoint;${CLI_OUT}/missing.ckpt;--device;cpu")
+add_test(NAME cli_generate_bad_flags
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    "-DCASES=${CLI_GEN_ARGS};--top-p;0;|;${CLI_GEN_ARGS};--top-p;1.5;|;${CLI_GEN_ARGS};--top-k;-1;|;${CLI_GEN_ARGS};--temp;-1;|;${CLI_GEN_ARGS};--max-new;0;|;${CLI_GEN_ARGS};--no-cache;x;|;${CLI_GEN_ARGS};--seed;-3"
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_usage_cases.cmake)
+
+set_tests_properties(cli_generate_smoke cli_generate_greedy_cache_equals_nocache
+  cli_generate_cuda_smoke cli_generate_unknown_char
+  PROPERTIES FIXTURES_REQUIRED cli_checkpoint)
+
+# Resuming a run that already reached train.steps fails before any output.
+add_cli_quiet_failure(cli_train_resume_finished
+  "error: .*latest[.]ckpt: the run already finished at step 20 of 20"
+  "train;--resume;${CLI_OUT}/ckpt;--device;cpu")
+set_tests_properties(cli_train_resume_finished PROPERTIES
+  FIXTURES_REQUIRED cli_checkpoint)
+
+# Resume against edited token files. edit_token_file writes a well-formed
+# token file with one token replaced. The run stops at step 3 so that the
+# resume reaches the token checks.
+add_executable(edit_token_file tools/edit_token_file.cpp)
+target_link_libraries(edit_token_file PRIVATE titan_io titan_core)
+
+function(add_cli_resume_failure name file index id pattern)
+  add_test(NAME ${name}
+    COMMAND ${CMAKE_COMMAND}
+      -DEXE=$<TARGET_FILE:titan>
+      -DTOOL=$<TARGET_FILE:edit_token_file>
+      -DCONFIG=${CLI_FIXTURES}/checkpoint-config.json
+      -DDATA=${CLI_FIXTURES}/tiny_corpus.txt
+      -DOUT_DIR=${CLI_OUT}/${name}
+      -DSTOP_AT=3
+      -DFILE=${file}
+      -DINDEX=${index}
+      -DID=${id}
+      "-DPATTERN=${pattern}"
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_resume_failure.cmake)
+endfunction()
+
+# Token 0 of the corpus is 'F'; id 0 is '\n', in the vocabulary.
+add_cli_resume_failure(cli_train_resume_changed_tokens train.bin 0 0
+  "error: .*train[.]bin: the token file changed since the checkpoint")
+add_cli_resume_failure(cli_train_resume_bad_token train.bin 5 9999
+  "error: .*train[.]bin: token 5 is 9999, outside")

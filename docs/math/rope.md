@@ -47,7 +47,7 @@ There are no parameters, and `pos_offset` and `theta` are constants, so there is
 
 - Public interface and precondition checks (rank 4, even `hd`, `pos_offset ≥ 0`): `src/ops/rope.hpp`, `src/ops/rope.cpp`. The dispatch routes by the tensor's device to the CPU or the CUDA implementation.
 - Reference implementation: `src/ops/cpu/rope.cpp`; one helper rotates by `sign · a`, with `sign = +1` for the forward pass and `−1` for the backward pass.
-- CUDA kernel: `src/ops/cuda/rope.cu`, declared in `src/ops/cuda/rope.hpp`. `tests/ops/cuda/rope_parity_test.cpp` compares `rope` and `rope_backward` with the CPU for `pos_offset` 0 and 7 and head dimensions 2 and 64.
+- CUDA kernel: `src/ops/cuda/rope.cu`, declared in `src/ops/cuda/rope.hpp`. `tests/ops/cuda/rope_parity_test.cpp` compares `rope` and `rope_backward` with the CPU for `pos_offset` 0 and 7 and head dimensions 2 and 64. `RopeParity.LargePosOffset` adds `pos_offset` 4096, a generation position far into a long context. Both devices compute the angles in double, so the large offset must not cost accuracy.
 - Tests: `tests/ops/rope_test.cpp` covers the identity at position 0, norm preservation, a known value, the pair frequencies, the position offset, the relative-position property, backward inverting forward, finite-difference gradient checks with and without an offset, and error cases.
 
 ## CUDA implementation

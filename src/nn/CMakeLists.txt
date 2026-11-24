@@ -6,6 +6,7 @@ add_library(titan_nn STATIC
   norm.cpp
   mlp.cpp
   attention.cpp
+  kv_cache.cpp
   block.cpp
   lm_head.cpp
   loss.cpp)

@@ -137,6 +137,33 @@ ModelConfig parse_model_config(const io::JsonValue& model_section,
     return c;
 }
 
+io::JsonValue model_config_to_json(const ModelConfig& c) {
+    io::JsonValue blocks = io::JsonValue::array();
+    for (const BlockConfig& b : c.blocks) {
+        io::JsonValue o = io::JsonValue::object();
+        o.set("n_heads", io::JsonValue::number(static_cast<double>(b.n_heads)));
+        o.set("n_kv_heads",
+              io::JsonValue::number(static_cast<double>(b.n_kv_heads)));
+        o.set("mlp", io::JsonValue::string(b.mlp));
+        o.set("mlp_hidden",
+              io::JsonValue::number(static_cast<double>(b.mlp_hidden)));
+        o.set("norm", io::JsonValue::string(b.norm));
+        o.set("position", io::JsonValue::string(b.position));
+        blocks.push_back(std::move(o));
+    }
+    io::JsonValue m = io::JsonValue::object();
+    m.set("dim", io::JsonValue::number(static_cast<double>(c.dim)));
+    m.set("context_length",
+          io::JsonValue::number(static_cast<double>(c.context_length)));
+    m.set("rope_theta",
+          io::JsonValue::number(static_cast<double>(c.rope_theta)));
+    m.set("norm_eps", io::JsonValue::number(static_cast<double>(c.norm_eps)));
+    m.set("tied_embeddings", io::JsonValue::boolean(c.tied_embeddings));
+    m.set("final_norm", io::JsonValue::string(c.final_norm));
+    m.set("blocks", std::move(blocks));
+    return m;
+}
+
 ModelConfig llama_style(std::int64_t vocab, std::int64_t dim,
                         std::int64_t n_layers, std::int64_t n_heads,
                         std::int64_t n_kv_heads, std::int64_t context) {
@@ -160,6 +187,54 @@ ModelConfig llama_style(std::int64_t vocab, std::int64_t dim,
     c.context_length = context;
     c.blocks.assign(static_cast<std::size_t>(n_layers), b);
     return c;
+}
+
+namespace {
+
+// a·b and a + b for non-negative counts, throwing once a result would pass
+// kMaxParameters (so nothing here can overflow).
+std::int64_t count_mul(std::int64_t a, std::int64_t b) {
+    TITAN_CHECK(b == 0 || a <= kMaxParameters / b,
+                "the model config implies more than 2^60 parameters");
+    return a * b;
+}
+
+std::int64_t count_add(std::int64_t a, std::int64_t b) {
+    TITAN_CHECK(a <= kMaxParameters - b,
+                "the model config implies more than 2^60 parameters");
+    return a + b;
+}
+
+// One norm's values: a weight, plus a bias for LayerNorm.
+std::int64_t norm_count(const std::string& norm, std::int64_t dim) {
+    return norm == "layernorm" ? count_mul(2, dim) : dim;
+}
+
+}  // namespace
+
+std::int64_t parameter_count(const ModelConfig& c) {
+    const std::int64_t d = c.dim;
+    const std::int64_t embedding = count_mul(c.vocab_size, d);
+    std::int64_t n = embedding;
+    for (const BlockConfig& b : c.blocks) {
+        const std::int64_t head_dim = d / b.n_heads;
+        const std::int64_t kv_dim = count_mul(b.n_kv_heads, head_dim);
+        // q_proj and o_proj (dim x n_heads·head_dim = dim x dim), k_proj and
+        // v_proj (dim x n_kv_heads·head_dim), all without bias.
+        const std::int64_t attention = count_add(
+            count_mul(2, count_mul(d, d)), count_mul(2, count_mul(d, kv_dim)));
+        const std::int64_t mlp =
+            b.mlp == "swiglu"
+                ? count_mul(3, count_mul(d, b.mlp_hidden))
+                : count_add(count_mul(2, count_mul(d, b.mlp_hidden)),
+                            count_add(b.mlp_hidden, d));
+        n = count_add(n, count_mul(2, norm_count(b.norm, d)));
+        n = count_add(n, attention);
+        n = count_add(n, mlp);
+    }
+    n = count_add(n, norm_count(c.final_norm, d));
+    if (!c.tied_embeddings) n = count_add(n, embedding);
+    return n;
 }
 
 }  // namespace titan::model

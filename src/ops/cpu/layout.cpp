@@ -78,4 +78,35 @@ Tensor repeat_kv_backward(const Tensor& dy, std::int64_t n_rep) {
     return dx;
 }
 
+void kv_write(Tensor& cache, const Tensor& x, std::int64_t pos) {
+    const std::int64_t bh = x.dim(0) * x.dim(1);
+    const std::int64_t t_max = cache.dim(2);
+    const std::int64_t t = x.dim(2);
+    const std::int64_t hd = x.dim(3);
+    const float* px = x.data();
+    float* pc = cache.data();
+    // Per (batch, head) the T new rows are one contiguous block of T·hd
+    // values, and so is their destination inside the cache.
+    for (std::int64_t i = 0; i < bh; ++i) {
+        std::copy(px + i * t * hd, px + (i + 1) * t * hd,
+                  pc + (i * t_max + pos) * hd);
+    }
+}
+
+Tensor kv_read(const Tensor& cache, std::int64_t len) {
+    const std::int64_t bh = cache.dim(0) * cache.dim(1);
+    const std::int64_t t_max = cache.dim(2);
+    const std::int64_t hd = cache.dim(3);
+    Tensor y =
+        Tensor::empty({cache.dim(0), cache.dim(1), len, hd}, cache.device());
+    const float* pc = cache.data();
+    float* py = y.data();
+    // The first len rows of each (batch, head) are one contiguous block.
+    for (std::int64_t i = 0; i < bh; ++i) {
+        std::copy(pc + i * t_max * hd, pc + (i * t_max + len) * hd,
+                  py + i * len * hd);
+    }
+    return y;
+}
+
 }  // namespace titan::ops::cpu

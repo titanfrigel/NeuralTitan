@@ -10,49 +10,123 @@
 
 namespace titan::runtime {
 
-std::int32_t sample_token(std::span<const float> logits, float temperature,
-                          Rng& rng) {
-    TITAN_CHECK(!logits.empty(), "sample_token: empty logits");
-    TITAN_CHECK(std::isfinite(temperature) && temperature >= 0.0f,
-                "sample_token: temperature must be finite and >= 0, got " +
-                    std::to_string(temperature));
-    const auto n = static_cast<std::int64_t>(logits.size());
-    std::int64_t best = 0;
-    for (std::int64_t i = 1; i < n; ++i) {
-        if (logits[static_cast<std::size_t>(i)] >
-            logits[static_cast<std::size_t>(best)]) {
+void validate(const SamplerConfig& config) {
+    TITAN_CHECK(std::isfinite(config.temperature) && config.temperature >= 0.0f,
+                "SamplerConfig: temperature must be finite and >= 0, got " +
+                    std::to_string(config.temperature));
+    TITAN_CHECK(config.top_k >= 0, "SamplerConfig: top_k must be >= 0, got " +
+                                       std::to_string(config.top_k));
+    TITAN_CHECK(config.top_p > 0.0f && config.top_p <= 1.0f,
+                "SamplerConfig: top_p must be in (0, 1], got " +
+                    std::to_string(config.top_p));
+}
+
+std::int32_t sample(std::span<const float> logits, const SamplerConfig& config,
+                    Rng& rng) {
+    TITAN_CHECK(!logits.empty(), "sample: empty logits");
+    validate(config);
+    const auto n = logits.size();
+    std::size_t best = 0;
+    for (std::size_t i = 1; i < n; ++i) {
+        if (logits[i] > logits[best]) {
             best = i;
         }
     }
-    if (temperature == 0.0f) {
+    if (config.temperature == 0.0f) {
         return static_cast<std::int32_t>(best);
     }
 
-    // p_i = exp((z_i - z_max) / T) / sum_j exp((z_j - z_max) / T), in double.
-    const double max_logit = logits[static_cast<std::size_t>(best)];
-    std::vector<double> p(logits.size());
+    // w_i = exp((z_i - z_max) / T); p_i = w_i / sum_j w_j, in double. The
+    // weights stay unnormalized: dropped tokens get weight 0 and the draw
+    // scales u by the kept total, which is the renormalized inverse CDF.
+    const double max_logit = logits[best];
+    std::vector<double> w(n);
     double total = 0.0;
-    for (std::size_t i = 0; i < logits.size(); ++i) {
-        p[i] = std::exp((static_cast<double>(logits[i]) - max_logit) /
-                        static_cast<double>(temperature));
-        total += p[i];
+    for (std::size_t i = 0; i < n; ++i) {
+        w[i] = std::exp((static_cast<double>(logits[i]) - max_logit) /
+                        static_cast<double>(config.temperature));
+        total += w[i];
     }
-    // Inverse CDF: the first index whose cumulative probability exceeds u.
+
+    const bool use_top_k =
+        config.top_k > 0 && static_cast<std::uint64_t>(config.top_k) < n;
+    const bool use_top_p = config.top_p < 1.0f;
+    if (use_top_k || use_top_p) {
+        // Order by probability descending, lower index first on ties.
+        std::vector<std::size_t> order(n);
+        for (std::size_t i = 0; i < n; ++i) {
+            order[i] = i;
+        }
+        std::sort(order.begin(), order.end(),
+                  [&w](std::size_t a, std::size_t b) {
+                      return w[a] != w[b] ? w[a] > w[b] : a < b;
+                  });
+        std::size_t kept = n;
+        if (use_top_k) {
+            kept = static_cast<std::size_t>(config.top_k);
+        }
+        if (use_top_p) {
+            // Shortest prefix of the kept tokens whose mass, renormalized over
+            // the top-k survivors, is >= top_p.
+            double kept_total = 0.0;
+            for (std::size_t r = 0; r < kept; ++r) {
+                kept_total += w[order[r]];
+            }
+            double mass = 0.0;
+            std::size_t prefix = 0;
+            while (prefix < kept) {
+                mass += w[order[prefix]] / kept_total;
+                ++prefix;
+                if (mass >= static_cast<double>(config.top_p)) {
+                    break;
+                }
+            }
+            kept = prefix;
+        }
+        for (std::size_t r = kept; r < n; ++r) {
+            w[order[r]] = 0.0;
+        }
+        total = 0.0;
+        for (std::size_t i = 0; i < n; ++i) {
+            total += w[i];
+        }
+    }
+
+    // Inverse CDF: the first kept index whose cumulative weight exceeds u.
     const double target = static_cast<double>(rng.uniform()) * total;
     double cumulative = 0.0;
-    for (std::size_t i = 0; i < p.size(); ++i) {
-        cumulative += p[i];
+    std::size_t last_kept = best;
+    for (std::size_t i = 0; i < n; ++i) {
+        if (w[i] == 0.0) {
+            continue;
+        }
+        last_kept = i;
+        cumulative += w[i];
         if (target < cumulative) {
             return static_cast<std::int32_t>(i);
         }
     }
-    return static_cast<std::int32_t>(n - 1);
+    return static_cast<std::int32_t>(last_kept);
+}
+
+std::int32_t sample_token(std::span<const float> logits, float temperature,
+                          Rng& rng) {
+    return sample(logits, SamplerConfig{temperature, 0, 1.0f}, rng);
 }
 
 std::vector<std::int32_t> generate_naive(model::Model& model,
                                          std::vector<std::int32_t> prompt,
                                          std::int64_t n_new, float temperature,
                                          Rng& rng) {
+    return generate_naive(model, std::move(prompt), n_new,
+                          SamplerConfig{temperature, 0, 1.0f}, rng);
+}
+
+std::vector<std::int32_t> generate_naive(
+    model::Model& model, std::vector<std::int32_t> prompt, std::int64_t n_new,
+    const SamplerConfig& config, Rng& rng,
+    const std::function<void(std::int32_t)>& on_token) {
+    validate(config);
     TITAN_CHECK(!prompt.empty(), "generate_naive: empty prompt");
     TITAN_CHECK(n_new >= 0, "generate_naive: n_new must be >= 0, got " +
                                 std::to_string(n_new));
@@ -70,7 +144,8 @@ std::vector<std::int32_t> generate_naive(model::Model& model,
         const std::vector<float> all = logits.to_vector();
         const std::span<const float> last(all.data() + (t - 1) * vocab,
                                           static_cast<std::size_t>(vocab));
-        tokens.push_back(sample_token(last, temperature, rng));
+        tokens.push_back(sample(last, config, rng));
+        if (on_token) on_token(tokens.back());
     }
     return tokens;
 }

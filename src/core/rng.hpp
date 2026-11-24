@@ -2,6 +2,8 @@
 
 #include <cstdint>
 #include <random>
+#include <string>
+#include <string_view>
 
 #include "core/tensor.hpp"
 
@@ -33,6 +35,17 @@ public:
     // Fills a CPU tensor with mean + stddev * normal(). Throws for a CUDA
     // tensor.
     void fill_normal(Tensor& t, float mean, float stddev);
+
+    // The full generator state as text: the std::mt19937_64 state (its
+    // operator<< form), then the has-cached flag (0 or 1) and the bits of the
+    // cached normal as a decimal integer, so the double round-trips exactly
+    // and no locale or float formatting is involved.
+    std::string save_state() const;
+
+    // Restores a state written by save_state. Throws titan::Error
+    // "Rng::load_state: malformed state" on any parse failure; the generator
+    // is unchanged in that case.
+    void load_state(std::string_view state);
 
 private:
     std::mt19937_64 engine_;

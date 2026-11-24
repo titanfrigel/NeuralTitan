@@ -4,6 +4,7 @@
 #include <utility>
 
 #include "core/error.hpp"
+#include "nn/kv_cache.hpp"
 #include "ops/elementwise.hpp"
 #include "ops/layout.hpp"
 #include "ops/matmul.hpp"
@@ -66,8 +67,32 @@ Attention::Attention(std::string name, std::int64_t dim, std::int64_t n_heads,
       o_proj_(name + ".o_proj", n_heads * head_dim_, dim, false) {}
 
 Tensor Attention::forward(const Tensor& x, ForwardContext& ctx) {
-    TITAN_CHECK(ctx.pos_offset == 0,
-                name_ + ": pos_offset > 0 needs the KV cache (M3)");
+    KvCache* cache = ctx.kv_cache;
+    if (cache == nullptr) {
+        TITAN_CHECK(ctx.pos_offset == 0,
+                    name_ + ": pos_offset > 0 needs a KV cache, got " +
+                        std::to_string(ctx.pos_offset));
+    } else {
+        TITAN_CHECK(
+            !ctx.training,
+            "attention: the KV cache is inference-only (" + name_ + ")");
+        TITAN_CHECK(ctx.pos_offset == cache->length(),
+                    name_ + ": pos_offset " + std::to_string(ctx.pos_offset) +
+                        " must equal the KV cache length " +
+                        std::to_string(cache->length()));
+        const KvLayerShape& shape = cache->layer_shape(ctx.layer);
+        TITAN_CHECK(
+            shape.n_kv_heads == n_kv_heads_ && shape.head_dim == head_dim_,
+            name_ + ": KV cache layer " + std::to_string(ctx.layer) +
+                " holds " + std::to_string(shape.n_kv_heads) +
+                " heads of size " + std::to_string(shape.head_dim) +
+                ", the layer needs " + std::to_string(n_kv_heads_) +
+                " of size " + std::to_string(head_dim_));
+        TITAN_CHECK(x.rank() == 3 && x.dim(0) == cache->batch(),
+                    name_ + ": input " + to_string(x.shape()) +
+                        " does not match the KV cache batch " +
+                        std::to_string(cache->batch()));
+    }
     TITAN_CHECK(x.rank() == 3 && x.dim(2) == dim_,
                 name_ + ": input must be (B, T, " + std::to_string(dim_) +
                     "), got " + to_string(x.shape()));
@@ -78,17 +103,27 @@ Tensor Attention::forward(const Tensor& x, ForwardContext& ctx) {
     // Steps 1-2: project, then split into heads (B, H, T, hd).
     Tensor q = split_heads(q_proj_.forward(x, ctx), n_heads_, head_dim_);
     Tensor k = split_heads(k_proj_.forward(x, ctx), n_kv_heads_, head_dim_);
-    const Tensor v =
-        split_heads(v_proj_.forward(x, ctx), n_kv_heads_, head_dim_);
+    Tensor v = split_heads(v_proj_.forward(x, ctx), n_kv_heads_, head_dim_);
     // Step 3: rotate queries and keys by their absolute positions.
     if (pos_ == PositionEncoding::Rope) {
         q = ops::rope(q, ctx.pos_offset, rope_theta_);
         k = ops::rope(k, ctx.pos_offset, rope_theta_);
     }
+    // With a cache: store the new keys (already rotated) and values at rows
+    // p0..p0+T-1, then attend over every cached row 0..p0+T-1. The keys of
+    // earlier positions do not depend on later tokens, so they are reused.
+    if (cache != nullptr) {
+        const std::int64_t total = ctx.pos_offset + x.dim(1);
+        ops::kv_write(cache->keys(ctx.layer), k, ctx.pos_offset);
+        ops::kv_write(cache->values(ctx.layer), v, ctx.pos_offset);
+        k = ops::kv_read(cache->keys(ctx.layer), total);
+        v = ops::kv_read(cache->values(ctx.layer), total);
+    }
     // Step 4: every query head h reads KV head h / n_rep.
     Tensor k_rep = ops::repeat_kv(k, n_rep);
     Tensor v_rep = ops::repeat_kv(v, n_rep);
-    // Steps 5-6: scores = q·kᵀ / √hd, then the causal softmax per row.
+    // Steps 5-6: scores = q·kᵀ / √hd, (T, p0 + T) per head with a cache, then
+    // the causal softmax per row: query t sees keys j <= t + p0.
     Tensor scores = ops::matmul(q, k_rep, false, true);
     ops::scale_(scores, score_scale);
     Tensor probs = ops::causal_softmax(scores, ctx.pos_offset);

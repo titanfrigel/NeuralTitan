@@ -16,6 +16,14 @@ struct AdamWConfig {
     float weight_decay = 0.1f;
 };
 
+// The optimizer state: the step counter and, per parameter in the order of the
+// constructor's `params`, the first and second moments. The tensors are on the
+// CPU.
+struct AdamWState {
+    std::int64_t steps = 0;
+    std::vector<Tensor> m, v;
+};
+
 // AdamW with decoupled weight decay (docs/math/adamw.md). Keeps a first and a
 // second moment per parameter, zero-filled at construction. Parameters of rank
 // 1 (norm weights, biases) are not decayed. The parameters must outlive the
@@ -29,6 +37,14 @@ public:
     void step(float lr);
 
     std::int64_t steps() const { return steps_; }
+
+    // A deep copy of the state, moved to the CPU.
+    AdamWState state() const;
+
+    // Replaces the state with `s`, copying the moments to each parameter's
+    // device. Throws titan::Error naming the parameter when the number of
+    // moments or a shape does not match; the optimizer is unchanged then.
+    void load_state(const AdamWState& s);
 
 private:
     std::vector<nn::Parameter*> params_;

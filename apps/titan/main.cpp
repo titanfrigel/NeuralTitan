@@ -1,5 +1,5 @@
-// titan command-line entry point: --version, info, tokenizer train, train and
-// bench matmul.
+// titan command-line entry point: --version, info, tokenizer train, train,
+// generate and bench matmul.
 #include <cstdlib>
 #include <exception>
 #include <iostream>
@@ -24,7 +24,13 @@ int usage() {
                  "--out <tok.json>\n"
                  "       titan train --config <cfg.json> --data <corpus.txt> "
                  "--out <dir> [--tokenizer <tok.json>] [--steps N] "
+                 "[--stop-at N] [--device cpu|cuda] "
+                 "[--gemm cublas|naive|tiled]\n"
+                 "       titan train --resume <dir> [--stop-at N] "
                  "[--device cpu|cuda] [--gemm cublas|naive|tiled]\n"
+                 "       titan generate --checkpoint <file> [--prompt <text>] "
+                 "[--max-new N] [--temp T] [--top-k K] [--top-p P] [--seed S] "
+                 "[--device cpu|cuda] [--no-cache]\n"
                  "       titan bench matmul [--sizes 256,512,1024,2048,4096] "
                  "[--repeat 10]\n";
     return kExitUsage;
@@ -57,6 +63,10 @@ int run(int argc, char** argv) {
     try {
         if (command == "train") {
             titan::cli::train(args);
+            return EXIT_SUCCESS;
+        }
+        if (command == "generate") {
+            titan::cli::generate(args);
             return EXIT_SUCCESS;
         }
         if (command == "bench") {

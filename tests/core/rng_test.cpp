@@ -1,6 +1,8 @@
+#include <bit>
 #include <cstddef>
 #include <cstdint>
 #include <random>
+#include <string>
 #include <vector>
 
 #include "core/device.hpp"
@@ -83,4 +85,34 @@ TITAN_TEST(Rng, FillNormalIsSeeded) {
     b.fill_normal(t2, 1.0f, 2.0f);
     TITAN_EXPECT(t1.to_vector() == t2.to_vector());
     TITAN_EXPECT(t1.to_vector()[0] != 0.0f);
+}
+
+TITAN_TEST(Rng, SaveLoadContinuesSameStream) {
+    Rng a(2024);
+    // Three normals leave the second of the second pair cached.
+    for (int i = 0; i < 3; ++i) a.normal();
+    const std::string state = a.save_state();
+    std::vector<float> expected;
+    for (int i = 0; i < 5; ++i) expected.push_back(a.normal());
+
+    Rng b(0);
+    b.load_state(state);
+    std::vector<float> actual;
+    for (int i = 0; i < 5; ++i) actual.push_back(b.normal());
+    TITAN_EXPECT_EQ(actual.size(), expected.size());
+    for (std::size_t i = 0; i < expected.size(); ++i) {
+        TITAN_EXPECT(std::bit_cast<std::uint32_t>(actual[i]) ==
+                     std::bit_cast<std::uint32_t>(expected[i]));
+    }
+}
+
+TITAN_TEST(Rng, LoadRejectsGarbage) {
+    Rng rng(1);
+    TITAN_EXPECT_THROWS(rng.load_state(""), titan::Error);
+    TITAN_EXPECT_THROWS(rng.load_state("abc"), titan::Error);
+    // A truncated state or one with trailing junk is rejected too.
+    const std::string state = rng.save_state();
+    TITAN_EXPECT_THROWS(rng.load_state(state + " x"), titan::Error);
+    TITAN_EXPECT_THROWS(rng.load_state(state.substr(0, state.size() / 2)),
+                        titan::Error);
 }
