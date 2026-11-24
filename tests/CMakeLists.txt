@@ -21,6 +21,7 @@ target_sources(titan_tests PRIVATE
   support/gradcheck_test.cpp
   support/parity.cpp
   support/parity_test.cpp
+  support/random_text.cpp
   ops/elementwise_test.cpp
   ops/reduce_test.cpp
   ops/matmul_test.cpp
@@ -55,6 +56,7 @@ target_sources(titan_tests PRIVATE
   io/token_file_test.cpp
   io/checkpoint_file_test.cpp
   tokenizer/char_tokenizer_test.cpp
+  tokenizer/pretokenizer_test.cpp
   model/config_test.cpp
   model/model_test.cpp
   model/model_cuda_test.cpp
@@ -68,6 +70,12 @@ target_sources(titan_tests PRIVATE
 # The CUDA tests call the runtime directly, so they link cudart themselves
 # instead of relying on titan_core, which keeps it private.
 target_link_libraries(titan_tests PRIVATE titan_test_harness titan_runtime titan_model titan_tokenizer titan_io titan_optim titan_nn titan_ops titan_core CUDA::cudart)
+
+# Unit tests find golden fixtures and repository files (such as corpora)
+# through these paths.
+target_compile_definitions(titan_tests PRIVATE
+  TITAN_FIXTURES_DIR="${PROJECT_SOURCE_DIR}/tests/fixtures"
+  TITAN_SOURCE_DIR="${PROJECT_SOURCE_DIR}")
 add_test(NAME unit COMMAND titan_tests)
 
 add_executable(harness_selftest_failing harness/main.cpp harness/selftest_failing.cpp)
