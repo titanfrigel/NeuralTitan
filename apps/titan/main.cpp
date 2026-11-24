@@ -1,5 +1,5 @@
-// titan command-line entry point: --version, info, tokenizer train, train,
-// generate and bench matmul.
+// titan command-line entry point: --version, info, tokenizer train, tokenizer
+// encode, train, generate and bench matmul.
 #include <cstdlib>
 #include <exception>
 #include <iostream>
@@ -24,6 +24,8 @@ int usage() {
                  "--out <tok.json>\n"
                  "       titan tokenizer train --type bpe --corpus <file> "
                  "--vocab N --out <tok.json>\n"
+                 "       titan tokenizer encode --tokenizer <tok.json> "
+                 "(--text <s> | --file <path>) [--summary]\n"
                  "       titan train --config <cfg.json> --data <corpus.txt> "
                  "--out <dir> [--tokenizer <tok.json>] [--steps N] "
                  "[--stop-at N] [--device cpu|cuda] "
@@ -77,6 +79,10 @@ int run(int argc, char** argv) {
         }
         if (command == "tokenizer" && !args.empty() && args[0] == "train") {
             titan::cli::tokenizer_train(std::span(args).subspan(1));
+            return EXIT_SUCCESS;
+        }
+        if (command == "tokenizer" && !args.empty() && args[0] == "encode") {
+            titan::cli::tokenizer_encode(std::span(args).subspan(1));
             return EXIT_SUCCESS;
         }
     } catch (const titan::cli::UsageError&) {

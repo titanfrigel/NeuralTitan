@@ -15,6 +15,14 @@ struct UsageError {};
 // `args` are the arguments after "tokenizer train".
 void tokenizer_train(std::span<const std::string_view> args);
 
+// `titan tokenizer encode --tokenizer <tok.json> (--text <s> | --file <path>)
+//  [--summary]` encodes the text with a character or BPE tokenizer and prints
+// the ids on one line, separated by spaces. With --summary it prints
+// `tokens N`, `crc32 0x%08x` (the CRC-32 of the ids as little-endian int32,
+// as in tests/fixtures/smollm2/corpus.json) and `bytes_per_token X.XXX`
+// instead. `args` are the arguments after "tokenizer encode".
+void tokenizer_encode(std::span<const std::string_view> args);
+
 // `titan train --config <cfg.json> --data <corpus.txt> --out <dir>
 //  [--tokenizer <tok.json>] [--steps N] [--stop-at N] [--device cpu|cuda]
 //  [--gemm cublas|naive|tiled]` starts a run;
@@ -29,8 +37,11 @@ void train(std::span<const std::string_view> args);
 
 // `titan generate --checkpoint <file> [--prompt <text>] [--max-new N]
 //  [--temp T] [--top-k K] [--top-p P] [--seed S] [--device cpu|cuda]
-//  [--no-cache]`: echoes the prompt (default a newline), then streams each
-// sampled character to stdout, and writes tokens/s to stderr. Defaults:
+//  [--no-cache]`: echoes the prompt (default a newline), then streams the
+// text of each sampled token to stdout, holding back the bytes of an
+// incomplete UTF-8 character until a later token completes it, and writes
+// tokens/s to stderr. Generation stops early at the tokenizer's end-of-text
+// token, which is not printed. Defaults:
 // --temp 0.8 --top-k 0 --top-p 0.9 --max-new 500, --seed the checkpoint's
 // train.seed. --no-cache recomputes the whole window per token
 // (generate_naive) for comparison. `args` are the arguments after

@@ -261,7 +261,7 @@ Heap entries are not removed when a count changes, so an entry may be stale. A c
 - if the current count is lower, the entry is re-pushed with it;
 - if it is higher, a fresher entry exists and the stale one is dropped.
 
-The first entry that matches its pair's count is the true best pair. A step then costs `O(ℓ + e log H)`, where `ℓ` is the total length of the changed words, `e` the number of pairs in them and `H` the heap size. Frequent pairs sit in common words, but each merge touches only the words that hold it, not the whole corpus. `BpeTrain.MatchesNaive` checks that both trainers give the same merges and counts. On the full TinyShakespeare (1.1 MB), 3839 merges for a vocabulary of 4096 take about 0.25 s in a release build.
+The first entry that matches its pair's count is the true best pair. A step then costs `O(ℓ + e log H)`, where `ℓ` is the total length of the changed words, `e` the number of pairs in them and `H` the heap size. Frequent pairs sit in common words, but each merge touches only the words that hold it, not the whole corpus. `BpeTrain.MatchesNaive` checks that both trainers give the same merges and counts. On the full TinyShakespeare (1.1 MB), 3839 merges for a vocabulary of 4096 take about 0.25 s in a release build; the [M4 result](../../README.md#m4-result) records the run and compares the trained vocabulary with SmolLM2's on that corpus.
 
 ### Where training lives in the code
 
@@ -284,7 +284,7 @@ The first entry that matches its pair's count is the true best pair. A step then
 
 Every id is checked against `[0, vocab_size)` first, and an error names the id and its position. The result is raw bytes. A sequence of ids can end inside a multi-byte character, since one token may hold only the first byte of `é`. So the output is not guaranteed to be valid UTF-8, and callers that print it must handle an incomplete tail.
 
-A streaming caller keeps the decoded bytes it has not printed yet and prints only `utf8_complete_prefix(bytes)` of them (`src/core/utf8.*`). That length leaves out a trailing lead byte with fewer continuation bytes than it announces, at most 3 bytes, when some valid sequence starts with them: `aæ` prints `a` and keeps `æ` until the next token completes `日`. Invalid bytes, including a lead no valid sequence starts with (`C0`, `C1`, `F5`…`FF`, or `E0 80`, `ED A0`, `F0 80`, `F4 90`, which would be overlong, a surrogate or above U+10FFFF), count as complete, so the caller never holds them back forever.
+A streaming caller keeps the decoded bytes it has not printed yet and prints only `utf8_complete_prefix(bytes)` of them (`src/core/utf8.*`). That length leaves out a trailing lead byte with fewer continuation bytes than it announces, at most 3 bytes, when some valid sequence starts with them: the bytes `61 E6 97` print `a` and keep `E6 97` until the next token's `A5` completes `日` (`E6 97 A5`). `titan generate` streams this way, and at the end prints whatever is still pending as it is. Invalid bytes, including a lead no valid sequence starts with (`C0`, `C1`, `F5`…`FF`, or `E0 80`, `ED A0`, `F0 80`, `F4 90`, which would be overlong, a surrogate or above U+10FFFF), count as complete, so the caller never holds them back forever.
 
 `decode(encode(text)) = text` holds for every valid UTF-8 text whose bytes all have a symbol: the merges only regroup symbols, and the added tokens and pieces cover the text in order. A dropped byte is lost.
 

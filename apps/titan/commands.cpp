@@ -18,6 +18,7 @@
 #include "core/error.hpp"
 #include "core/rng.hpp"
 #include "core/tensor.hpp"
+#include "core/utf8.hpp"
 #include "io/file.hpp"
 #include "io/json.hpp"
 #include "io/token_file.hpp"
@@ -192,6 +193,16 @@ std::vector<std::int32_t> sample_prompt(const tokenizer::Tokenizer& tok) {
     }
 }
 
+// The character or BPE tokenizer saved in `path`; errors name the file.
+std::unique_ptr<tokenizer::Tokenizer> read_tokenizer(const std::string& path) {
+    const std::string text = io::read_file(path);
+    try {
+        return tokenizer::load_tokenizer(io::parse_json(text));
+    } catch (const Error& e) {
+        throw Error(path + ": " + e.what());
+    }
+}
+
 // The device from --device, or the GPU when there is one; checks that a
 // requested GPU exists and applies --gemm. Runs before any file is read.
 Device select_device(const Flags& flags) {
@@ -283,11 +294,46 @@ void tokenizer_train(std::span<const std::string_view> args) {
               << elapsed.count() << " s\n";
 }
 
+void tokenizer_encode(std::span<const std::string_view> args) {
+    const Flags flags = parse_flags(args, {"tokenizer", "text", "file"},
+                                    {"tokenizer"}, {"summary"});
+    // Exactly one source of text.
+    if (flags.contains("text") == flags.contains("file")) throw UsageError{};
+
+    const std::unique_ptr<tokenizer::Tokenizer> tok =
+        read_tokenizer(flags.at("tokenizer"));
+    const std::string text = flags.contains("text")
+                                 ? flags.at("text")
+                                 : io::read_file(flags.at("file"));
+    const std::vector<std::int32_t> ids = tok->encode(text);
+
+    if (!flags.contains("summary")) {
+        for (std::size_t i = 0; i < ids.size(); ++i) {
+            if (i > 0) std::cout << ' ';
+            std::cout << ids[i];
+        }
+        std::cout << '\n';
+        return;
+    }
+    // Bytes per token: the compression the tokenizer achieves on this text
+    // (0 when there is no token).
+    const double bytes_per_token = ids.empty()
+                                       ? 0.0
+                                       : static_cast<double>(text.size()) /
+                                             static_cast<double>(ids.size());
+    std::cout << "tokens " << ids.size() << '\n'
+              << "crc32 0x" << std::hex << std::setw(8) << std::setfill('0')
+              << runtime::token_crc32(ids) << std::dec << '\n'
+              << "bytes_per_token " << std::fixed << std::setprecision(3)
+              << bytes_per_token << '\n';
+}
+
 namespace {
 
 // Runs `trainer` (up to --stop-at when given), saving <out>/latest.ckpt at
 // every checkpoint step. When the run reached its last step, it samples 500
-// characters into <out>/sample.txt exactly as M1 did. Prints the summary.
+// tokens (characters with a character tokenizer) into <out>/sample.txt
+// exactly as M1 did. Prints the summary.
 void run_training(runtime::Trainer& trainer, model::Model& model,
                   const tokenizer::Tokenizer& tok,
                   const runtime::TrainConfig& tc, const fs::path& out,
@@ -347,10 +393,10 @@ void train_new(const Flags& flags, Device device,
 
     // 1. The tokenizer: loaded, or built from the corpus (and saved below).
     const bool load_tokenizer = flags.contains("tokenizer");
-    const auto tok = load_tokenizer
-                         ? tokenizer::CharTokenizer::from_json(io::parse_json(
-                               io::read_file(flags.at("tokenizer"))))
-                         : tokenizer::CharTokenizer::build(corpus);
+    const std::unique_ptr<tokenizer::Tokenizer> tok =
+        load_tokenizer ? read_tokenizer(flags.at("tokenizer"))
+                       : std::make_unique<tokenizer::CharTokenizer>(
+                             tokenizer::CharTokenizer::build(corpus));
 
     // The train section, with --steps replacing train.steps before validation
     // so that warmup < steps is still enforced.
@@ -364,7 +410,7 @@ void train_new(const Flags& flags, Device device,
     check_stop_at(stop_at, 0, tc.steps);
 
     // 2. Encode once; the last val_fraction of the tokens validates.
-    std::vector<std::int32_t> tokens = tok.encode(corpus);
+    std::vector<std::int32_t> tokens = tok->encode(corpus);
     const auto n = static_cast<std::int64_t>(tokens.size());
     const std::int64_t min_split = tc.seq + 2;
     const std::int64_t n_val = std::max(
@@ -382,7 +428,7 @@ void train_new(const Flags& flags, Device device,
 
     // 3. The model and the trainer (which checks seq against context_length).
     model::Model model(
-        model::parse_model_config(config.at("model"), tok.vocab_size()));
+        model::parse_model_config(config.at("model"), tok->vocab_size()));
     Rng init_rng(tc.seed);
     model.init(init_rng);
     runtime::Trainer trainer(model, tc, train_tokens, val_tokens, std::cout);
@@ -390,11 +436,11 @@ void train_new(const Flags& flags, Device device,
     // 4. Only now write the outputs, then train.
     fs::create_directories(out);
     if (!load_tokenizer) {
-        io::write_file(out / "tokenizer.json", io::to_json(tok.to_json()));
+        io::write_file(out / "tokenizer.json", io::to_json(tok->to_json()));
     }
     io::write_token_file(out / "train.bin", train_tokens);
     io::write_token_file(out / "val.bin", val_tokens);
-    run_training(trainer, model, tok, tc, out, stop_at);
+    run_training(trainer, model, *tok, tc, out, stop_at);
 }
 
 // `titan train --resume <dir>`: continues the run saved in <dir>/latest.ckpt
@@ -520,23 +566,41 @@ void generate(std::span<const std::string_view> args) {
     if (use_cache) generator.emplace(model, sampler, generation_seed);
 
     // 4. Echo the prompt, then stream each token as soon as it is sampled.
-    std::cout << tok->decode(prompt) << std::flush;
-    const auto on_token = [&](std::int32_t id) {
-        std::cout << tok->decode(std::span(&id, 1)) << std::flush;
+    // A BPE token may hold only part of a UTF-8 character, so the decoded
+    // bytes go through `pending`: each step prints its complete prefix and
+    // keeps the incomplete tail until a later token completes it.
+    std::string pending = tok->decode(prompt);
+    const auto print_complete = [&] {
+        const std::size_t n = utf8_complete_prefix(pending);
+        std::cout.write(pending.data(), static_cast<std::streamsize>(n));
+        std::cout.flush();
+        pending.erase(0, n);
     };
+    print_complete();
+    std::int64_t generated = 0;
+    const auto on_token = [&](std::int32_t id) {
+        ++generated;
+        pending += tok->decode(std::span(&id, 1));
+        print_complete();
+    };
+    // The end-of-text token, when the tokenizer has one, ends generation.
+    const std::optional<std::int32_t> stop_id = tok->eos_id();
     const auto start = std::chrono::steady_clock::now();
     if (generator) {
-        generator->generate(prompt, max_new, on_token);
+        generator->generate(prompt, max_new, on_token, stop_id);
     } else {
         Rng rng(generation_seed);
-        runtime::generate_naive(model, prompt, max_new, sampler, rng, on_token);
+        runtime::generate_naive(model, prompt, max_new, sampler, rng, on_token,
+                                stop_id);
     }
     const std::chrono::duration<double> elapsed =
         std::chrono::steady_clock::now() - start;
-    std::cout << '\n' << std::flush;
+    // Whatever is still pending is a character the model never finished;
+    // its bytes are printed as they are.
+    std::cout << pending << '\n' << std::flush;
     std::cerr << std::fixed << std::setprecision(1) << "tokens/s "
-              << static_cast<double>(max_new) / elapsed.count() << " ("
-              << max_new << " tokens in " << std::setprecision(3)
+              << static_cast<double>(generated) / elapsed.count() << " ("
+              << generated << " tokens in " << std::setprecision(3)
               << elapsed.count() << " s, " << (use_cache ? "cache" : "no cache")
               << ", " << to_string(device) << ")\n";
 }

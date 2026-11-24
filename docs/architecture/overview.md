@@ -27,7 +27,7 @@ C4Context
 - **NVIDIA GPU and driver.** Reached only through the CUDA runtime API, from the `cuda` part of the `ops` layer and the device memory code in `core`.
 - **Hugging Face Hub.** NeuralTitan never makes network calls. Weight (`*.safetensors`), config (`config.json`) and tokenizer (`tokenizer.json`) files are downloaded beforehand into a local `models/` directory (git-ignored), then read by the `io` and `tokenizer` layers.
 - **Text corpora.** Plain text files downloaded into a local `data/` directory (git-ignored) and tokenized into binary token files by `titan`.
-- **Golden reference tooling.** Development-only Python scripts under `tools/` (ADR 0004). They produce fixture files committed under `tests/fixtures/`. They are never invoked by the build or the tests.
+- **Golden reference tooling.** Development-only Python scripts under `tools/` (ADR 0004). They produce fixture files committed under `tests/fixtures/`. They are never invoked by the build or the tests. The tokenizer fixtures flow one way: `tools/make_tokenizer_fixtures.py` reads SmolLM2's `tokenizer.json` (downloaded at a pinned revision) and runs Hugging Face's `tokenizers` on fixed strings and on TinyShakespeare, writing the reference ids to `tests/fixtures/smollm2/`; it also encodes with `tests/fixtures/bpe/trained.json`, which `titan tokenizer train` produced, writing `tests/fixtures/bpe/encode.json`. The C++ tests then require our encoder to give exactly those ids. `tools/gen_unicode_tables.py` generates `src/tokenizer/unicode_tables.*` the same way. Fixtures are regenerated, never edited by hand.
 
 ## 2. Solution strategy
 
@@ -66,13 +66,13 @@ Library layers, bottom to top:
 | --- | --- | --- | --- |
 | `core` | `Tensor`, `Storage`, `Device`, CUDA caching allocator, seeded RNG, error checking | C++20, CUDA runtime | 0002, 0007 |
 | `io` | JSON parser, safetensors reader, checkpoint binary format, bounds-checked binary reading | C++20 | 0007 |
-| `tokenizer` | The `Tokenizer` interface and `load_tokenizer`, character tokenizer, byte-level BPE (train, encode, decode, load `tokenizer.json`), Unicode category tables | C++20 | 0007 |
+| `tokenizer` | The `Tokenizer` interface and `load_tokenizer`, character tokenizer, byte-level BPE (train, encode, decode, load and save `tokenizer.json`, the end-of-text id), Unicode category tables | C++20 | 0007 |
 | `ops` | Device-dispatching operations; `ops/cpu` reference implementations; `ops/cuda` kernels; GEMM through cuBLAS by default, with own naive and tiled kernels selectable | C++20, CUDA, cuBLAS | 0002, 0005, 0007 |
 | `nn` | `Module`, `Parameter`, Embedding, Linear, RMSNorm, LayerNorm, Attention (GQA, RoPE, KV cache), SwiGLU, GeluMLP, TransformerBlock, LMHead, CrossEntropyLoss | C++20 | 0005 |
 | `optim` | AdamW, learning-rate schedules, gradient clipping | C++20 | 0005 |
 | `model` | `ModelConfig`, model assembly from config, presets, mapping Hugging Face weights to parameters, checkpoint save/load | C++20 | 0005 |
 | `runtime` | DataLoader, Trainer, Generator, Sampler | C++20 | 0005 |
-| `cli` | `titan` subcommands: `tokenizer train`, `train` (`--device cpu\|cuda`, defaulting to cuda when a GPU is available; `--gemm cublas\|naive\|tiled`; `--stop-at N`; `--resume <dir>`), `bench matmul`, `generate` (`--checkpoint`, sampling flags, `--no-cache`) | C++20 | 0005 |
+| `cli` | `titan` subcommands: `tokenizer train` (`--type char\|bpe`, `--vocab N`), `tokenizer encode` (`--text` or `--file`, `--summary`), `train` (`--tokenizer` with a character or BPE file; `--device cpu\|cuda`, defaulting to cuda when a GPU is available; `--gemm cublas\|naive\|tiled`; `--stop-at N`; `--resume <dir>`), `bench matmul`, `generate` (`--checkpoint`, sampling flags, `--no-cache`; stops at end of text) | C++20 | 0005 |
 
 ## 4. Runtime view
 
@@ -127,14 +127,14 @@ sequenceDiagram
   end
 ```
 
-As implemented in M3 (`titan generate` in `apps/titan/commands.cpp`, `runtime::Generator` in `src/runtime/generator.*`):
+As implemented in M3 and M4 (`titan generate` in `apps/titan/commands.cpp`, `runtime::Generator` in `src/runtime/generator.*`):
 
 1. The CLI validates every flag first: a bad `--temp`, `--top-k`, `--top-p`, `--max-new` or `--seed` is a usage error (exit 2) before any file is read.
 2. It reads the checkpoint header (`load_checkpoint(path, nullptr)`), rebuilds the tokenizer from the checkpoint's JSON (`checkpoint_tokenizer`, which returns a `tokenizer::Tokenizer` through `load_tokenizer`, so a character or a BPE tokenizer) and encodes the prompt. A damaged file or a character outside the vocabulary fails here, with `error:` on stderr, exit 1 and nothing on stdout.
 3. It builds the model from the saved config, loads the parameters, moves the model to the device, and only then constructs the `Generator`, whose KV cache is allocated on the model's device.
-4. It echoes the prompt and streams each sampled character to stdout, flushing per token, then writes `tokens/s` to stderr.
+4. It echoes the prompt and streams each sampled token to stdout, flushing per token, then writes `tokens/s` to stderr. A BPE token may end inside a UTF-8 character, so the decoded bytes go through a pending buffer: after each token the CLI appends `decode({id})`, prints the `utf8_complete_prefix` of the buffer and keeps the rest. When generation ends it prints whatever is still pending as it is, which is invalid UTF-8 only if the model stopped in the middle of a character. Invalid bytes are never held back (see the [BPE note](../math/bpe.md#decode)). `titan.manifest` makes UTF-8 the process code page, so a non-ASCII `--prompt` reaches the tokenizer as UTF-8.
 
-- The character tokenizer has no end-of-sequence token, so generation always runs `--max-new` tokens.
+- Generation stops at end of text: the CLI passes the tokenizer's `eos_id()` as the stop id to `Generator::generate` (and to `generate_naive` with `--no-cache`). A BPE tokenizer's `<|endoftext|>` ends generation as soon as it is sampled and is not printed. The character tokenizer has no end-of-text token, so its generation always runs `--max-new` tokens.
 - When the cache is full, the Generator slides by half: it keeps the last `context_length / 2` tokens, clears the cache and prefills them again.
 - `--no-cache` runs `generate_naive` with the same sampler settings instead, recomputing the whole window for every token. Before the first slide, both paths give the same tokens for the same seed.
 

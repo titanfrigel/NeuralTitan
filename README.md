@@ -53,6 +53,7 @@ scripts/check.ps1
 | `titan info` | Prints the CPU thread count and the CUDA device name, memory and compute capability, or that CUDA is not available. |
 | `titan tokenizer train --type char --corpus <file> --out <tok.json>` | Builds a character tokenizer from a corpus and saves it. |
 | `titan tokenizer train --type bpe --corpus <file> --vocab N --out <tok.json>` | Trains a byte-level BPE tokenizer of at most N tokens (N from 257 to 1048576) and saves it in Hugging Face's `tokenizer.json` layout; prints the vocabulary size, the merge count and the time. |
+| `titan tokenizer encode --tokenizer <tok.json> (--text <s> \| --file <path>) [--summary]` | Encodes text with a character or BPE tokenizer file (ours or a Hugging Face `tokenizer.json`) and prints the ids; `--summary` prints the token count, the CRC-32 of the ids and the bytes per token instead. |
 | `titan train --config <cfg.json> --data <corpus.txt> --out <dir>` | Trains a model, on the GPU when one is available; see [Training a model](#training-a-model). |
 | `titan train --resume <dir>` | Continues the run saved in `<dir>/latest.ckpt`, bit-identical to an uninterrupted run; see [Training a model](#training-a-model). |
 | `titan generate --checkpoint <file> [--prompt <text>]` | Streams text sampled from a trained checkpoint with the KV cache; see [Generating text](#generating-text). |
@@ -66,7 +67,7 @@ scripts/check.ps1
 ./build/release/apps/titan.exe train --config configs/tiny-shakespeare.json --data data/tinyshakespeare/input.txt --out runs/m1-shakespeare
 ```
 
-Options: `--tokenizer <tok.json>` (use a saved tokenizer instead of building a character tokenizer from the corpus), `--steps N` (overrides `train.steps`; `train.warmup` must stay below it), `--device cpu|cuda` (`--device cuda` without a GPU fails with `no CUDA device available`) and `--gemm cublas|naive|tiled` (the CUDA GEMM, cuBLAS by default; any other value needs `--device cuda`). The command writes `tokenizer.json` (when it built one), `train.bin` and `val.bin` (the encoded splits; the last `val_fraction` of the tokens validates), and `sample.txt` (500 characters sampled at temperature 0.8) to `--out`, and prints `device` (with the GEMM backend on CUDA), `params`, `time` and `final val_loss`. `titan tokenizer train --type char --corpus <file> --out <tok.json>` builds and saves a character tokenizer on its own.
+Options: `--tokenizer <tok.json>` (use a saved character or BPE tokenizer instead of building a character tokenizer from the corpus; the model's vocabulary size is the tokenizer's), `--steps N` (overrides `train.steps`; `train.warmup` must stay below it), `--device cpu|cuda` (`--device cuda` without a GPU fails with `no CUDA device available`) and `--gemm cublas|naive|tiled` (the CUDA GEMM, cuBLAS by default; any other value needs `--device cuda`). The command writes `tokenizer.json` (when it built one), `train.bin` and `val.bin` (the encoded splits; the last `val_fraction` of the tokens validates), and `sample.txt` (500 tokens sampled at temperature 0.8, which are characters with a character tokenizer) to `--out`, and prints `device` (with the GEMM backend on CUDA), `params`, `time` and `final val_loss`. `titan tokenizer train --type char --corpus <file> --out <tok.json>` builds and saves a character tokenizer on its own.
 
 Checkpoints: every run saves `latest.ckpt` to `--out` every `train.checkpoint_interval` steps (500 in `configs/tiny-shakespeare.json`; 0 or absent means only at the end), after the last step, and after the step given by `--stop-at N`, which ends the run there. Each save replaces the previous one atomically. The file holds the configs, the tokenizer, the parameters, the optimizer moments and the data-loader positions. `titan train --resume <dir> [--stop-at N] [--device cpu|cuda] [--gemm ...]` continues that run on the run directory's `train.bin` and `val.bin` and ends exactly where the uninterrupted run would; `--config`, `--data`, `--out`, `--tokenizer` and `--steps` are rejected with it. A run stopped early skips the sample.
 
@@ -74,13 +75,13 @@ The TinyShakespeare corpus is not in the repository: download `input.txt` from [
 
 ## Generating text
 
-`titan generate` reads a checkpoint (it needs no other file) and streams text, character by character:
+`titan generate` reads a checkpoint (it needs no other file) and streams text, token by token:
 
 ```powershell
 ./build/release/apps/titan.exe generate --checkpoint runs/m3-shakespeare/latest.ckpt --prompt "ROMEO:" --max-new 500
 ```
 
-Options: `--prompt <text>` (default a newline; every character must be in the checkpoint's vocabulary), `--max-new N` (500), `--temp T` (0.8; 0 is greedy and ignores top-k and top-p), `--top-k K` (0, off), `--top-p P` (0.9; in (0, 1]), `--seed S` (the checkpoint's `train.seed`), `--device cpu|cuda` (cuda when a GPU is available) and `--no-cache` (recompute the whole window for every token instead of using the KV cache, for comparison). The prompt is echoed, each new character is printed as soon as it is sampled, and `tokens/s` goes to stderr. Bad flags exit with code 2 before any file is read; a missing or damaged checkpoint or an unknown prompt character exits with code 1 and prints nothing to stdout. The sampling math is in the [sampling note](docs/math/sampling.md) and the cache in the [KV cache note](docs/math/kv-cache.md).
+Options: `--prompt <text>` (default a newline; with a character tokenizer every character must be in the checkpoint's vocabulary), `--max-new N` (500), `--temp T` (0.8; 0 is greedy and ignores top-k and top-p), `--top-k K` (0, off), `--top-p P` (0.9; in (0, 1]), `--seed S` (the checkpoint's `train.seed`), `--device cpu|cuda` (cuda when a GPU is available) and `--no-cache` (recompute the whole window for every token instead of using the KV cache, for comparison). The prompt is echoed, each new token is printed as soon as it is sampled, and `tokens/s` goes to stderr. A BPE token can hold part of a UTF-8 character, so its bytes are held back until a later token completes the character. With a BPE tokenizer, generation stops early when the model samples the end-of-text token `<|endoftext|>`, which is not printed. Bad flags exit with code 2 before any file is read; a missing or damaged checkpoint or an unknown prompt character exits with code 1 and prints nothing to stdout. The sampling math is in the [sampling note](docs/math/sampling.md) and the cache in the [KV cache note](docs/math/kv-cache.md).
 
 ## M1 result
 
@@ -167,6 +168,25 @@ Decode speed for `--prompt "ROMEO:" --max-new 500`, median of three runs, timed 
 | GPU | 521 tokens/s | 556 tokens/s |
 
 On the CPU the cache is 23× faster: each new token costs one position instead of up to 128. On the GPU both paths are most likely bound by per-token overhead (many small kernel launches and a copy of the logits to the host), not by arithmetic, so recomputing the 128-token window costs nothing measurable. The cache's extra write and read kernels make the cached path slightly slower there. With the same seed, the cached and uncached paths give the same first 100 tokens on both devices.
+
+## M4 result
+
+Byte-level BPE on TinyShakespeare (`data/tinyshakespeare/input.txt`, 1,115,394 bytes), release build, on the RTX 3070 Laptop GPU machine (both commands run on the CPU only):
+
+```powershell
+./build/release/apps/titan.exe tokenizer train --type bpe --corpus data/tinyshakespeare/input.txt --vocab 4096 --out runs/m4/bpe-4096.json
+./build/release/apps/titan.exe tokenizer encode --summary --tokenizer runs/m4/bpe-4096.json --file data/tinyshakespeare/input.txt
+./build/release/apps/titan.exe tokenizer encode --summary --tokenizer tests/fixtures/smollm2/tokenizer.json --file data/tinyshakespeare/input.txt
+```
+
+Training the 4096-token vocabulary learns 3,839 merges (4096 minus `<|endoftext|>` and the 256 bytes) in 0.27 s; three more runs took 0.20 to 0.23 s (median 0.21 s).
+
+| Tokenizer | Vocabulary | Tokens for TinyShakespeare | Bytes per token | Encode time |
+| --- | --- | --- | --- | --- |
+| Ours, trained on TinyShakespeare | 4,096 | 344,104 | 3.241 | 239 ms |
+| SmolLM2-135M | 49,152 | 341,094 | 3.270 | 350 ms |
+
+Encode time is the wall-clock time of the whole `titan tokenizer encode --summary` process, including loading the tokenizer file, as measured by PowerShell's `Measure-Command`, median of three runs. SmolLM2's 341,094 tokens and CRC-32 `0xc11ec8a4` equal the reference ids in `tests/fixtures/smollm2/corpus.json`, so our encoder reproduces Hugging Face's on the whole corpus. Our vocabulary is 12 times smaller yet only 0.9% less compact on this text, because it was trained on it; SmolLM2's vocabulary covers a broad web corpus, code and other languages. The tokenizer is explained in the [BPE note](docs/math/bpe.md).
 
 ## Documentation
 

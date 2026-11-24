@@ -376,3 +376,76 @@ add_cli_resume_failure(cli_train_resume_changed_tokens train.bin 0 0
   "error: .*train[.]bin: the token file changed since the checkpoint")
 add_cli_resume_failure(cli_train_resume_bad_token train.bin 5 9999
   "error: .*train[.]bin: token 5 is 9999, outside")
+
+# BPE tokenizers (M4): encode, train and generate. cli_tokenizer_train_bpe
+# (above) writes the tokenizer these use.
+function(add_cli_output name pattern)
+  add_test(NAME ${name}
+    COMMAND ${CMAKE_COMMAND}
+      -DEXE=$<TARGET_FILE:titan>
+      "-DARGS=${ARGN}"
+      -DEXPECT_CODE=0
+      "-DPATTERN=${pattern}"
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_failure.cmake)
+endfunction()
+
+set(CLI_BPE_TOK ${CLI_OUT}/bpe/tokenizer.json)
+add_cli_output(cli_tokenizer_encode_trained "^[0-9]+( [0-9]+)*[^0-9 ]*$"
+  "tokenizer;encode;--tokenizer;${CLI_BPE_TOK};--text;the")
+set_tests_properties(cli_tokenizer_encode_trained PROPERTIES
+  FIXTURES_REQUIRED bpe_tokenizer)
+# The special token is matched literally; a = 81 and b = 82 in SmolLM2.
+add_cli_output(cli_tokenizer_encode_smollm2 "^81 1 82[^0-9 ]*$"
+  "tokenizer;encode;--tokenizer;${CMAKE_CURRENT_SOURCE_DIR}/fixtures/smollm2/tokenizer.json;--text;a<|im_start|>b")
+# --summary: 3 tokens, the CRC-32 of 81 1 82 as little-endian int32 (zlib),
+# and 14 bytes / 3 tokens.
+add_cli_output(cli_tokenizer_encode_summary
+  "^tokens 3[^a-z]+crc32 0x71a517bb[^a-z]+bytes_per_token 4[.]667[^0-9]*$"
+  "tokenizer;encode;--tokenizer;${CMAKE_CURRENT_SOURCE_DIR}/fixtures/smollm2/tokenizer.json;--text;a<|im_start|>b;--summary")
+
+set(CLI_ENCODE_ARGS "tokenizer;encode;--tokenizer;${CLI_FIXTURES}/bad-tokenizer.json")
+add_cli_usage(cli_usage_encode_text_and_file
+  "${CLI_ENCODE_ARGS};--text;a;--file;${CLI_FIXTURES}/tiny_corpus.txt")
+add_cli_usage(cli_usage_encode_no_input "${CLI_ENCODE_ARGS}")
+add_cli_quiet_failure(cli_tokenizer_encode_bad_tokenizer
+  "error: .*model[.]merges.0.: " "${CLI_ENCODE_ARGS};--text;a")
+
+# Trains for 6 steps with the BPE tokenizer and generates from the result.
+add_test(NAME cli_train_bpe
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    -DCONFIG=${CLI_FIXTURES}/tiny-config.json
+    -DDATA=${CLI_FIXTURES}/tiny_corpus.txt
+    -DOUT_DIR=${CLI_OUT}/train_bpe
+    "-DTRAIN_ARGS=--tokenizer;${CLI_BPE_TOK};--steps;6"
+    "-DGENERATE_ARGS=--max-new;20;--device;cpu"
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_checkpoint.cmake)
+set_tests_properties(cli_train_bpe PROPERTIES
+  FIXTURES_REQUIRED bpe_tokenizer)
+
+# A non-ASCII prompt reaches the tokenizer as UTF-8 (titan.manifest) and
+# streams back as valid UTF-8. stdout is only as valid as the bytes the model
+# samples, and a model trained on cli_tokenizer_train_bpe's ASCII tokenizer
+# samples stray byte tokens (é is the byte tokens C3 A9, and greedy decoding
+# repeats A9). So this model uses SmolLM2's tokenizer, where é is one token;
+# after 6 steps its tied embeddings still make greedy decoding repeat the
+# last token, é. --stop-at skips the slow 500-token sample of a finished run.
+add_test(NAME cli_train_smollm2_tokenizer
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    -DCONFIG=${CLI_FIXTURES}/tiny-config.json
+    -DDATA=${CLI_FIXTURES}/tiny_corpus.txt
+    -DOUT_DIR=${CLI_OUT}/train_smollm2
+    "-DTRAIN_ARGS=--tokenizer;${CMAKE_CURRENT_SOURCE_DIR}/fixtures/smollm2/tokenizer.json;--stop-at;6"
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_checkpoint.cmake)
+set_tests_properties(cli_train_smollm2_tokenizer PROPERTIES
+  FIXTURES_SETUP smollm2_checkpoint)
+
+add_test(NAME cli_generate_bpe_utf8
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    "-DARGS=generate;--checkpoint;${CLI_OUT}/train_smollm2/latest.ckpt;--prompt;é;--max-new;20;--temp;0;--device;cpu"
+    "-DPREFIX=é"
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_valid_utf8.cmake)
+set_tests_properties(cli_generate_bpe_utf8 PROPERTIES
+  FIXTURES_REQUIRED smollm2_checkpoint)
