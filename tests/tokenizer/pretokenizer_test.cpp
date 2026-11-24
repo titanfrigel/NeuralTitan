@@ -133,4 +133,14 @@ TITAN_TEST(Pretokenize, RejectsInvalidUtf8) {
         msg = e.what();
     }
     TITAN_EXPECT(msg.find("byte offset 2") != std::string::npos);
+
+    // The offset counts bytes, not code points: the two bytes of U+00E9
+    // put \xFF at byte 2, though it is the second code point.
+    msg.clear();
+    try {
+        pretokenize("\xC3\xA9\xFF");
+    } catch (const titan::Error& e) {
+        msg = e.what();
+    }
+    TITAN_EXPECT(msg.find("byte offset 2") != std::string::npos);
 }

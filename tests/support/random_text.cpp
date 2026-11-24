@@ -1,6 +1,7 @@
 #include "support/random_text.hpp"
 
 #include <string_view>
+#include <utility>
 
 #include "core/rng.hpp"
 

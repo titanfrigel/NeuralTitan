@@ -137,9 +137,11 @@ TITAN_TEST(BpeTrain, SkipsEndOfText) {
 }
 
 TITAN_TEST(BpeTrain, MergesCreateDistinctTokens) {
-    // Ruling R6: no merge recreates an existing token. In the first corpus,
-    // "abc" could be formed as ab+c or as a+bc. The tokenizer must also load
-    // from its own file, whose loader rejects a repeated result.
+    // Ruling R6: no merge recreates an existing token. The first corpus
+    // holds both ab+c and a+bc, and the invariant rules out abc being formed
+    // both ways: once one merge creates abc, the other is never chosen. The
+    // tokenizer must also load from its own file, whose loader rejects a
+    // repeated result.
     for (const std::string_view corpus :
          {std::string_view("abc abc bcx bcx abx abx abcbc"),
           std::string_view(fixture_corpus())}) {

@@ -228,6 +228,28 @@ TITAN_TEST(Bpe, AddedTokensSplitFirst) {
     TITAN_EXPECT_EQ(partial.front(), byte_id('<'));
 }
 
+// At each position the longest added token that matches wins, so an added
+// token that is a prefix of another does not cut the longer one short.
+TITAN_TEST(Bpe, AddedTokensLongestMatch) {
+    // <|endoftext|> = 0, the bytes 1-256, <a> = 257, <ab> = 258, <ab = 259;
+    // no merges. <ab, a prefix of <ab>, comes first in the added list, so
+    // taking the first or the shortest match would split <ab> as <ab, >.
+    std::vector<std::string> vocab = {"<|endoftext|>"};
+    for (unsigned b = 0; b < 256; ++b) {
+        vocab.push_back(sym(static_cast<unsigned char>(b)));
+    }
+    vocab.push_back("<a>");
+    vocab.push_back("<ab>");
+    vocab.push_back("<ab");
+    const BpeTokenizer tok =
+        BpeTokenizer::from_parts(std::move(vocab), {}, {0, 259, 257, 258});
+    TITAN_EXPECT(tok.encode("<ab>") == ids({258}));
+    TITAN_EXPECT(tok.encode("<a><ab>") == ids({257, 258}));
+    // "<a>" matches, then "b>" is ordinary text: the pieces "b" and ">".
+    TITAN_EXPECT(tok.encode("<a>b>") == ids({257, byte_id('b'), byte_id('>')}));
+    TITAN_EXPECT(tok.encode("<abc") == ids({259, byte_id('c')}));
+}
+
 TITAN_TEST(Bpe, EncodeRejectsInvalidUtf8) {
     const BpeTokenizer tok = hello_tokenizer();
     std::string msg;
