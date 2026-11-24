@@ -188,6 +188,95 @@ A vocabulary need not hold all 256 single-byte symbols. SmolLM2's lacks 21 of th
 
 The byte is dropped when the piece is turned into symbols, before any merge. Its neighbours in the same piece therefore become adjacent and may merge: `"!\x04!"` gives the single token `!!`, exactly as with SmolLM2. Most such bytes are control characters, which the pre-tokenizer puts in a piece of their own. So `"he\x04llo"` is cut into the pieces `he`, `\x04` and `llo`, and gives `he`, `llo` rather than `hello`. A piece made only of such bytes yields no ids. Our own trainer always keeps all 256 symbols, so this case only arises with imported vocabularies.
 
+## Training
+
+Training learns the merge list from a corpus. It is the encoder run in reverse: each step finds the most frequent adjacent pair and turns it into a new token, until the vocabulary is full.
+
+### Ids
+
+- Id 0 is `<|endoftext|>`, the only added token.
+- Byte `b` is id `1 + b`, so all 256 byte symbols are always present and no byte is ever dropped.
+- Merge `i` creates id `257 + i`. Its text is the concatenation of its two parts' texts.
+
+A tokenizer trained for `vocab_size` therefore learns at most `vocab_size − 257` merges, and `vocab_size` must be at least 257.
+
+### Words
+
+1. Every `<|endoftext|>` is removed from the corpus, which is split at it. The documents on either side never share a word, and the bytes of the marker never enter a merge.
+2. Each remaining span is pre-tokenized, exactly as encode does it.
+3. The distinct pieces are the **words**, each with its frequency `f(w)`, the number of times it occurs. Each word starts as one id per byte.
+
+A merge never crosses a piece boundary in encode, so it never needs to in training: a word is the unit of work, and a corpus of a million bytes has only tens of thousands of distinct words.
+
+### Each step
+
+The **count** of a pair `(x, y)` is the number of adjacent positions where `x` is followed by `y`, summed over the words and weighted by their frequency:
+
+```text
+count(x, y) = Σ_w f(w) · #{ i : w[i] = x and w[i+1] = y }
+```
+
+Overlapping positions all count: `aaa` holds `(a, a)` twice.
+
+1. Choose the pair with the highest count. A tie goes to the smallest `(left, right)`: the smallest left id, then the smallest right id. The order depends only on the ids, so training is deterministic.
+2. Stop when that count is below 2, since a pair that occurs once saves nothing, or when `max_merges` merges have been made.
+3. Create the new token, and in every word replace the pair's non-overlapping occurrences from left to right with it. This is the same rule as encode, so `aaa` becomes `aa a`. Encode then applies exactly the merges training applied, in the same order.
+
+### Worked example: "aaab aaab ab"
+
+The words are `aaab`, `Ġaaab` and `Ġab`, once each (`Ġ` is the leading space). The ids are `a` = 98, `b` = 99, `Ġ` = 33.
+
+| Step | Words | Counts | Merge |
+| --- | --- | --- | --- |
+| 1 | `a a a b`, `Ġ a a a b`, `Ġ a b` | `(a, a)` 2 + 2 = 4; `(a, b)` 3; `(Ġ, a)` 2 | `(a, a)` → `aa`, id 257, count 4 |
+| 2 | `aa a b`, `Ġ aa a b`, `Ġ a b` | `(a, b)` 3; `(aa, a)` 2; `(Ġ, aa)` 1; `(Ġ, a)` 1 | `(a, b)` → `ab`, id 258, count 3 |
+
+In step 1, each `a a a` holds `(a, a)` twice, so the pair has 4. The merge replaces only the first of them, which leaves `aa a`. In step 2, `(aa, a)` has only 2, one per long word, and `(a, b)` wins with 3. `BpeTrain.HandExample` checks these two merges and their counts.
+
+### Never recreate a token
+
+Every merge must create a new token: `from_parts` and `from_json` reject a merge whose result an earlier merge already created (see "Merge order"). The trainer therefore never chooses a pair whose concatenated text is already a token. Such a pair is skipped: it is never merged, and the words keep it as two tokens. Both trainers apply this rule identically.
+
+With left-to-right merging of whole words, the rule never actually fires. Suppose merge `k` were `(A, B)` with `A + B = T`, and an earlier merge `j < k` were `(C, D)` with `C + D = T` and `C ≠ A`.
+
+- At step `k`, some word `w` holds `A` and `B` side by side. Tokens only ever grow, so before step `k` no token of `w` crosses either end of the span of `T`.
+- Inside a span that no token crosses, the merges act as they would on the span alone. An occurrence that straddles an end of the span is either skipped, or merged into a token that crosses that end. So before step `k` the span of `T` in `w` is split exactly as `T` alone would be at the same step.
+- At step `j`, some word `w'` holds `C` and `D` side by side, and by the same argument that is how `T` alone is split at step `j`.
+- So at step `j` the span of `T` in `w` is also `C D`, and merge `j` turns it into the single token `T`. It can never again be `A B`, which contradicts step `k`.
+
+The check stays in the code anyway: it makes the rule that `from_parts` enforces a property of the trainer itself rather than of this argument, and costs one hash lookup per chosen pair. `BpeTrain.MergesCreateDistinctTokens` checks that every created token is distinct and that the trained tokenizer loads from its own file.
+
+### The incremental update
+
+The naive trainer (`bpe_merges_naive`) recounts every pair of every word at every step. With `W` distinct words of total length `L`, a step costs `O(L + P log P)` for `P` distinct pairs, and `M` merges cost `O(M · L)` or more.
+
+A merge changes only the words that contain its pair. `bpe_merges` keeps:
+
+- `counts[pair]`, the weighted count;
+- `where[pair]`, the set of words that contain the pair;
+- a max-heap of entries `(count, −left, −right)`, so the top entry is the highest count with the smallest `(left, right)`.
+
+When `(x, y)` is merged into `z`, each word in `where[(x, y)]` has all its pairs subtracted, is merged, and has its new pairs added back, which updates both `counts` and `where`. Every pair of a changed word gets a fresh heap entry with its new count.
+
+Heap entries are not removed when a count changes, so an entry may be stale. A count only drops outside the pairs that get a fresh entry, so every pair has an entry at least as high as its count. When the top entry's count is not the current count:
+
+- if the current count is lower, the entry is re-pushed with it;
+- if it is higher, a fresher entry exists and the stale one is dropped.
+
+The first entry that matches its pair's count is the true best pair. A step then costs `O(ℓ + e log H)`, where `ℓ` is the total length of the changed words, `e` the number of pairs in them and `H` the heap size. Frequent pairs sit in common words, but each merge touches only the words that hold it, not the whole corpus. `BpeTrain.MatchesNaive` checks that both trainers give the same merges and counts. On the full TinyShakespeare (1.1 MB), 3839 merges for a vocabulary of 4096 take about 0.25 s in a release build.
+
+### Where training lives in the code
+
+| Concept | Code |
+| --- | --- |
+| Words | `count_words` in `src/tokenizer/bpe_trainer.cpp` |
+| Merging one word | `merge_word`, the same rule as `BpeTokenizer::encode_piece` |
+| Token texts and the never-recreate rule | `Tokens::creates_new_token`, `Tokens::add` |
+| The naive trainer | `bpe_merges_naive` |
+| Counts, `where`, the lazy heap | `bpe_merges`, `HeapEntry` |
+| The tokenizer | `train_bpe`, which builds the vocabulary and calls `BpeTokenizer::from_parts` |
+| The command | `titan tokenizer train --type bpe --vocab N` in `apps/titan/commands.cpp` |
+
 ## Decode
 
 `decode(ids)` concatenates the tokens' byte strings:

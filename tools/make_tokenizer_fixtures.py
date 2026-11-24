@@ -1,4 +1,5 @@
-"""Generates the SmolLM2 tokenizer golden fixtures in tests/fixtures/smollm2/.
+"""Generates the tokenizer golden fixtures in tests/fixtures/smollm2/ and
+tests/fixtures/bpe/.
 
 The reference is Hugging Face tokenizers with SmolLM2-135M's tokenizer.json at
 a pinned revision. The script:
@@ -8,7 +9,12 @@ a pinned revision. The script:
 3. writes encode.json: the reference ids and decoded text of FIXTURE_STRINGS;
 4. writes corpus.json, if data/tinyshakespeare/input.txt exists: its byte
    count, token count and the CRC-32 (zlib.crc32) of its ids as little-endian
-   int32.
+   int32;
+5. writes tests/fixtures/bpe/encode.json: the ids that Hugging Face gives
+   FIXTURE_STRINGS with NeuralTitan's own trained tokenizer,
+   tests/fixtures/bpe/trained.json (written by `titan tokenizer train --type
+   bpe`, see AGENTS.md). It proves that the file loads in Hugging Face and
+   that both encoders agree on our merges.
 
 Run from the repository root, in the tools venv:
 
@@ -29,6 +35,7 @@ REVISION = "93efa2f097d58c2a74874c7e644dbc9b0cee75a2"
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 MODEL_DIR = ROOT / "models" / "SmolLM2-135M"
 OUT_DIR = ROOT / "tests" / "fixtures" / "smollm2"
+BPE_DIR = ROOT / "tests" / "fixtures" / "bpe"
 CORPUS = "data/tinyshakespeare/input.txt"
 
 # Each string pins one behaviour of the pre-tokenizer, the merges or the
@@ -90,19 +97,30 @@ def reference_tokenizer():
     return tokenizers.Tokenizer.from_file(str(target))
 
 
-def main():
-    OUT_DIR.mkdir(parents=True, exist_ok=True)
-    tok = reference_tokenizer()
-
+def encode_cases(tok):
     cases = []
     for text in FIXTURE_STRINGS:
         ids = tok.encode(text, add_special_tokens=False).ids
         decoded = tok.decode(ids, skip_special_tokens=False)
         cases.append({"text": text, "ids": ids, "decoded": decoded})
+    return cases
+
+
+def main():
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    tok = reference_tokenizer()
+
     write_json(OUT_DIR / "encode.json", {
         "revision": REVISION,
         "tokenizers_version": tokenizers.__version__,
-        "cases": cases,
+        "cases": encode_cases(tok),
+    })
+
+    trained = tokenizers.Tokenizer.from_file(str(BPE_DIR / "trained.json"))
+    write_json(BPE_DIR / "encode.json", {
+        "tokenizer": "tests/fixtures/bpe/trained.json",
+        "tokenizers_version": tokenizers.__version__,
+        "cases": encode_cases(trained),
     })
 
     corpus = ROOT / CORPUS
