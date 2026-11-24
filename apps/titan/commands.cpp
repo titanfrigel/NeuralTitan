@@ -38,16 +38,18 @@ namespace {
 
 namespace fs = std::filesystem;
 
-constexpr std::int64_t kSampleChars = 500;
+constexpr std::int64_t kSampleTokens = 500;
 constexpr float kSampleTemperature = 0.8f;
 // titan generate defaults.
 constexpr float kGenerateTemperature = 0.8f;
 constexpr float kGenerateTopP = 0.9f;
 constexpr std::int64_t kGenerateMaxNew = 500;
 // titan tokenizer train --type bpe: <|endoftext|> and the 256 bytes, up to
-// 2^20 tokens.
+// 2^18 tokens. The cap keeps any trained tokenizer inside the checkpoint's
+// 16 MiB header: a token costs about 28 bytes of compact JSON (its vocabulary
+// entry and its merge), so 262144 tokens need about 7 MiB.
 constexpr std::int64_t kMinBpeVocab = 257;
-constexpr std::int64_t kMaxBpeVocab = 1048576;
+constexpr std::int64_t kMaxBpeVocab = 262144;
 
 using Flags = std::map<std::string, std::string, std::less<>>;
 
@@ -349,12 +351,14 @@ void run_training(runtime::Trainer& trainer, model::Model& model,
 
     if (finished) {
         // The sample prompt: a newline when the vocabulary has one, else
-        // token 0. The sample keeps the M1 sampler and seed so that every
-        // milestone's sample.txt stays reproducible.
+        // token 0. The sample keeps the M1 sampler (temperature only: top-k
+        // off, top-p 1) and seed so that every milestone's sample.txt stays
+        // reproducible. A BPE sample ends early at end of text.
         Rng sample_rng(tc.seed);
-        const std::vector<std::int32_t> ids =
-            runtime::generate_naive(model, sample_prompt(tok), kSampleChars,
-                                    kSampleTemperature, sample_rng);
+        const std::vector<std::int32_t> ids = runtime::generate_naive(
+            model, sample_prompt(tok), kSampleTokens,
+            runtime::SamplerConfig{kSampleTemperature, 0, 1.0f}, sample_rng, {},
+            tok.eos_id());
         const std::string sample = tok.decode(ids);
         io::write_file(out / "sample.txt", sample);
         std::cout << "--- sample ---\n" << sample << "\n--- end sample ---\n";
@@ -567,21 +571,14 @@ void generate(std::span<const std::string_view> args) {
 
     // 4. Echo the prompt, then stream each token as soon as it is sampled.
     // A BPE token may hold only part of a UTF-8 character, so the decoded
-    // bytes go through `pending`: each step prints its complete prefix and
-    // keeps the incomplete tail until a later token completes it.
-    std::string pending = tok->decode(prompt);
-    const auto print_complete = [&] {
-        const std::size_t n = utf8_complete_prefix(pending);
-        std::cout.write(pending.data(), static_cast<std::streamsize>(n));
-        std::cout.flush();
-        pending.erase(0, n);
-    };
-    print_complete();
+    // bytes go through a Utf8Stream: each step prints the complete part and
+    // the stream keeps the incomplete tail until a later token completes it.
+    Utf8Stream stream;
+    std::cout << stream.push(tok->decode(prompt)) << std::flush;
     std::int64_t generated = 0;
     const auto on_token = [&](std::int32_t id) {
         ++generated;
-        pending += tok->decode(std::span(&id, 1));
-        print_complete();
+        std::cout << stream.push(tok->decode(std::span(&id, 1))) << std::flush;
     };
     // The end-of-text token, when the tokenizer has one, ends generation.
     const std::optional<std::int32_t> stop_id = tok->eos_id();
@@ -597,7 +594,7 @@ void generate(std::span<const std::string_view> args) {
         std::chrono::steady_clock::now() - start;
     // Whatever is still pending is a character the model never finished;
     // its bytes are printed as they are.
-    std::cout << pending << '\n' << std::flush;
+    std::cout << stream.finish() << '\n' << std::flush;
     std::cerr << std::fixed << std::setprecision(1) << "tokens/s "
               << static_cast<double>(generated) / elapsed.count() << " ("
               << generated << " tokens in " << std::setprecision(3)

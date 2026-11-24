@@ -35,4 +35,19 @@ bool is_valid_utf8(std::string_view text);
 // are never held back.
 std::size_t utf8_complete_prefix(std::string_view bytes);
 
+// Streams bytes that may stop inside a UTF-8 character, such as the decoded
+// tokens of a BPE tokenizer, so that no returned piece ends inside one.
+class Utf8Stream {
+public:
+    // Appends `bytes` to the pending ones and returns their
+    // utf8_complete_prefix, keeping the incomplete tail for a later push.
+    std::string push(std::string_view bytes);
+    // Returns what is still pending, as it is (an incomplete character when
+    // the input stopped inside one), and clears it.
+    std::string finish();
+
+private:
+    std::string pending_;
+};
+
 }  // namespace titan

@@ -217,6 +217,7 @@ set(CLI_TOK_ARGS "tokenizer;train;--corpus;${CLI_FIXTURES}/tiny_corpus.txt;--out
 add_cli_usage(cli_usage_bpe_without_vocab "${CLI_TOK_ARGS};--type;bpe")
 add_cli_usage(cli_usage_char_with_vocab "${CLI_TOK_ARGS};--type;char;--vocab;300")
 add_cli_usage(cli_usage_vocab_256 "${CLI_TOK_ARGS};--type;bpe;--vocab;256")
+add_cli_usage(cli_usage_vocab_262145 "${CLI_TOK_ARGS};--type;bpe;--vocab;262145")
 add_cli_usage(cli_usage_vocab_not_a_number "${CLI_TOK_ARGS};--type;bpe;--vocab;x")
 
 # With every CUDA device hidden, --device cuda must fail before writing --out.

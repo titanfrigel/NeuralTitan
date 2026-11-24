@@ -133,4 +133,18 @@ std::size_t utf8_complete_prefix(std::string_view bytes) {
     return n;  // only continuation bytes at the end: invalid, so complete
 }
 
+std::string Utf8Stream::push(std::string_view bytes) {
+    pending_ += bytes;
+    const std::size_t n = utf8_complete_prefix(pending_);
+    std::string complete = pending_.substr(0, n);
+    pending_.erase(0, n);
+    return complete;
+}
+
+std::string Utf8Stream::finish() {
+    std::string rest;
+    rest.swap(pending_);
+    return rest;
+}
+
 }  // namespace titan

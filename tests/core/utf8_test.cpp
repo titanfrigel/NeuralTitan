@@ -51,6 +51,15 @@ TITAN_TEST(Utf8, RejectsInvalid) {
         TITAN_EXPECT(std::string(e.what()).find("offset 2") !=
                      std::string::npos);
     }
+    // A byte offset, not a code-point index: U+00E9 is two bytes, so \xFF
+    // (the second code point) is at offset 2.
+    try {
+        titan::decode_utf8("\xC3\xA9\xFF");
+        TITAN_EXPECT(false);
+    } catch (const titan::Error& e) {
+        TITAN_EXPECT(std::string(e.what()).find("offset 2") !=
+                     std::string::npos);
+    }
     TITAN_EXPECT_THROWS(titan::encode_utf8(0xD800), titan::Error);
     TITAN_EXPECT_THROWS(titan::encode_utf8(0x110000), titan::Error);
 }
@@ -75,4 +84,29 @@ TITAN_TEST(Utf8, CompletePrefix) {
     TITAN_EXPECT_EQ(titan::utf8_complete_prefix("\xF4\x90"), std::size_t{2});
     TITAN_EXPECT_EQ(titan::utf8_complete_prefix("\xE0\x80"), std::size_t{2});
     TITAN_EXPECT_EQ(titan::utf8_complete_prefix("\xF5"), std::size_t{1});
+    // A lead followed by a byte that cannot continue it is ill-formed, so
+    // complete; the first two bytes of U+10000 and of U+10FFFF are held.
+    TITAN_EXPECT_EQ(titan::utf8_complete_prefix("a\xE6\x41"), std::size_t{3});
+    TITAN_EXPECT_EQ(titan::utf8_complete_prefix("\xF0\x90"), std::size_t{0});
+    TITAN_EXPECT_EQ(titan::utf8_complete_prefix("\xF4\x8F"), std::size_t{0});
+}
+
+// Utf8Stream returns what is complete and holds an incomplete tail until a
+// later push completes it; finish() hands over what is left.
+TITAN_TEST(Utf8, Stream) {
+    titan::Utf8Stream stream;
+    TITAN_EXPECT_EQ(stream.push("a"), std::string("a"));
+    TITAN_EXPECT_EQ(stream.push("\xE6"), std::string());
+    TITAN_EXPECT_EQ(stream.push("\x97"), std::string());
+    // E6 97 A5 is U+65E5.
+    TITAN_EXPECT_EQ(stream.push("\xA5"), std::string("\xE6\x97\xA5"));
+    TITAN_EXPECT_EQ(stream.finish(), std::string());
+
+    // Ill-formed bytes are not held back.
+    TITAN_EXPECT_EQ(stream.push("\xE6\x41"), std::string("\xE6\x41"));
+
+    // An incomplete tail comes out of finish() as it is, and only once.
+    TITAN_EXPECT_EQ(stream.push("\xE6"), std::string());
+    TITAN_EXPECT_EQ(stream.finish(), std::string("\xE6"));
+    TITAN_EXPECT_EQ(stream.finish(), std::string());
 }

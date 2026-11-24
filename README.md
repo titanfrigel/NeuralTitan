@@ -52,7 +52,7 @@ scripts/check.ps1
 | `titan --version` | Prints the library version. |
 | `titan info` | Prints the CPU thread count and the CUDA device name, memory and compute capability, or that CUDA is not available. |
 | `titan tokenizer train --type char --corpus <file> --out <tok.json>` | Builds a character tokenizer from a corpus and saves it. |
-| `titan tokenizer train --type bpe --corpus <file> --vocab N --out <tok.json>` | Trains a byte-level BPE tokenizer of at most N tokens (N from 257 to 1048576) and saves it in Hugging Face's `tokenizer.json` layout; prints the vocabulary size, the merge count and the time. |
+| `titan tokenizer train --type bpe --corpus <file> --vocab N --out <tok.json>` | Trains a byte-level BPE tokenizer of at most N tokens (N from 257 to 262144, so that the tokenizer fits the checkpoint's 16 MiB header) and saves it in Hugging Face's `tokenizer.json` layout; prints the vocabulary size, the merge count and the time. |
 | `titan tokenizer encode --tokenizer <tok.json> (--text <s> \| --file <path>) [--summary]` | Encodes text with a character or BPE tokenizer file (ours or a Hugging Face `tokenizer.json`) and prints the ids; `--summary` prints the token count, the CRC-32 of the ids and the bytes per token instead. |
 | `titan train --config <cfg.json> --data <corpus.txt> --out <dir>` | Trains a model, on the GPU when one is available; see [Training a model](#training-a-model). |
 | `titan train --resume <dir>` | Continues the run saved in `<dir>/latest.ckpt`, bit-identical to an uninterrupted run; see [Training a model](#training-a-model). |
@@ -81,7 +81,7 @@ The TinyShakespeare corpus is not in the repository: download `input.txt` from [
 ./build/release/apps/titan.exe generate --checkpoint runs/m3-shakespeare/latest.ckpt --prompt "ROMEO:" --max-new 500
 ```
 
-Options: `--prompt <text>` (default a newline; with a character tokenizer every character must be in the checkpoint's vocabulary), `--max-new N` (500), `--temp T` (0.8; 0 is greedy and ignores top-k and top-p), `--top-k K` (0, off), `--top-p P` (0.9; in (0, 1]), `--seed S` (the checkpoint's `train.seed`), `--device cpu|cuda` (cuda when a GPU is available) and `--no-cache` (recompute the whole window for every token instead of using the KV cache, for comparison). The prompt is echoed, each new token is printed as soon as it is sampled, and `tokens/s` goes to stderr. A BPE token can hold part of a UTF-8 character, so its bytes are held back until a later token completes the character. With a BPE tokenizer, generation stops early when the model samples the end-of-text token `<|endoftext|>`, which is not printed. Bad flags exit with code 2 before any file is read; a missing or damaged checkpoint or an unknown prompt character exits with code 1 and prints nothing to stdout. The sampling math is in the [sampling note](docs/math/sampling.md) and the cache in the [KV cache note](docs/math/kv-cache.md).
+Options: `--prompt <text>` (default a newline; with a character tokenizer every character must be in the checkpoint's vocabulary), `--max-new N` (500), `--temp T` (0.8; 0 is greedy and ignores top-k and top-p), `--top-k K` (0, off), `--top-p P` (0.9; in (0, 1]), `--seed S` (the checkpoint's `train.seed`), `--device cpu|cuda` (cuda when a GPU is available) and `--no-cache` (recompute the whole window for every token instead of using the KV cache, for comparison). The prompt is echoed, each new token is printed as soon as it is sampled, and `tokens/s` goes to stderr. A BPE token can hold part of a UTF-8 character, so its bytes are held back until a later token completes the character; only such an incomplete tail is held back, and ill-formed bytes the model samples are printed as they are. Non-ASCII arguments reach `titan` as UTF-8 on Windows 10 version 1903 and later (the program's manifest sets the UTF-8 code page), but a legacy console shows non-ASCII output garbled unless you run `chcp 65001` first or use a UTF-8 terminal such as Windows Terminal. With a BPE tokenizer, generation stops early when the model samples the end-of-text token `<|endoftext|>`, which is not printed. Bad flags exit with code 2 before any file is read; a missing or damaged checkpoint or an unknown prompt character exits with code 1 and prints nothing to stdout. The sampling math is in the [sampling note](docs/math/sampling.md) and the cache in the [KV cache note](docs/math/kv-cache.md).
 
 ## M1 result
 
@@ -171,7 +171,7 @@ On the CPU the cache is 23× faster: each new token costs one position instead o
 
 ## M4 result
 
-Byte-level BPE on TinyShakespeare (`data/tinyshakespeare/input.txt`, 1,115,394 bytes), release build, on the RTX 3070 Laptop GPU machine (both commands run on the CPU only):
+Byte-level BPE on TinyShakespeare (`data/tinyshakespeare/input.txt`, 1,115,394 bytes), release build, on the RTX 3070 Laptop GPU machine (all three commands run on the CPU only):
 
 ```powershell
 ./build/release/apps/titan.exe tokenizer train --type bpe --corpus data/tinyshakespeare/input.txt --vocab 4096 --out runs/m4/bpe-4096.json

@@ -23,7 +23,7 @@ int usage() {
                  "       titan tokenizer train --type char --corpus <file> "
                  "--out <tok.json>\n"
                  "       titan tokenizer train --type bpe --corpus <file> "
-                 "--vocab N --out <tok.json>\n"
+                 "--vocab N --out <tok.json> (N in [257, 262144])\n"
                  "       titan tokenizer encode --tokenizer <tok.json> "
                  "(--text <s> | --file <path>) [--summary]\n"
                  "       titan train --config <cfg.json> --data <corpus.txt> "
