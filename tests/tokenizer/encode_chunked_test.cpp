@@ -90,6 +90,9 @@ TITAN_TEST(EncodeChunked, ThreadCountDoesNotMatter) {
     const ThreadCount restore;
     const auto tok = load(kFixtures / "bpe" / "trained.json");
     const std::string text = with_markers(corpus(), true);
+    // With 8 threads the text must be split into enough ranges for
+    // parallel_for to start workers (at least 2 per thread).
+    TITAN_EXPECT(titan::tokenizer::split_at_end_of_text(text, 32).size() >= 16);
     titan::set_num_threads(1);
     const std::vector<std::int32_t> one =
         titan::tokenizer::encode_chunked(*tok, text);
@@ -98,6 +101,22 @@ TITAN_TEST(EncodeChunked, ThreadCountDoesNotMatter) {
         titan::tokenizer::encode_chunked(*tok, text);
     TITAN_EXPECT(!one.empty());
     TITAN_EXPECT(one == eight);
+}
+
+TITAN_TEST(EncodeChunked, RangesCoverTheTextAtMarkers) {
+    const std::string text = with_markers(corpus(), true);
+    const auto ranges = titan::tokenizer::split_at_end_of_text(text, 32);
+    TITAN_EXPECT(ranges.size() >= 16);
+    std::size_t next = 0;
+    for (const auto& [begin, end] : ranges) {
+        TITAN_EXPECT_EQ(begin, next);
+        TITAN_EXPECT(end > begin);
+        TITAN_EXPECT(
+            end == text.size() ||
+            text.compare(end - kMarker.size(), kMarker.size(), kMarker) == 0);
+        next = end;
+    }
+    TITAN_EXPECT_EQ(next, text.size());
 }
 
 TITAN_TEST(EncodeChunked, CharTokenizerEncodesWhole) {
@@ -118,8 +137,13 @@ TITAN_TEST(EncodeChunked, RethrowsErrorsFromWorkerThreads) {
     const ThreadCount restore;
     titan::set_num_threads(4);
     const auto tok = load(kFixtures / "bpe" / "trained.json");
-    // Invalid UTF-8 in the last range.
-    const std::string text = with_markers(corpus(), true) + "\xff";
+    // 4 threads get 16 ranges, 4 each; the last block runs on the calling
+    // thread, so a bad byte at the start of range 4 (the second block) makes
+    // a worker thread throw.
+    std::string text = with_markers(corpus(), true);
+    const auto ranges = titan::tokenizer::split_at_end_of_text(text, 16);
+    TITAN_EXPECT(ranges.size() >= 8);
+    text[ranges[ranges.size() / 4].first] = '\xff';
     TITAN_EXPECT_THROWS(titan::tokenizer::encode_chunked(*tok, text),
                         titan::Error);
 }

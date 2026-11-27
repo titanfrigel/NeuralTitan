@@ -12,12 +12,12 @@ namespace titan::tokenizer {
 namespace {
 
 constexpr std::string_view kEndOfText = "<|endoftext|>";
+// At least 2 ranges per thread, which parallel_for needs to start workers.
+constexpr std::size_t kRangesPerThread = 4;
 
-// Splits [0, text.size()) into byte ranges that start and end right after an
-// <|endoftext|> (or at the ends of the text), each of roughly text.size() /
-// parts bytes: a range is extended chunk by chunk until it reaches that size,
-// so a long marker-free chunk makes a longer range.
-std::vector<std::pair<std::size_t, std::size_t>> split_ranges(
+}  // namespace
+
+std::vector<std::pair<std::size_t, std::size_t>> split_at_end_of_text(
     std::string_view text, std::size_t parts) {
     const std::size_t target = (text.size() + parts - 1) / parts;
     std::vector<std::pair<std::size_t, std::size_t>> ranges;
@@ -35,8 +35,6 @@ std::vector<std::pair<std::size_t, std::size_t>> split_ranges(
     return ranges;
 }
 
-}  // namespace
-
 std::vector<std::int32_t> encode_chunked(const Tokenizer& tok,
                                          std::string_view text) {
     if (!tok.eos_id().has_value()) return tok.encode(text);
@@ -48,8 +46,11 @@ std::vector<std::int32_t> encode_chunked(const Tokenizer& tok,
     // the same ids as encoding in place. This assumes that no added token
     // starts inside "<|endoftext|>" or contains it past its first byte; the
     // SmolLM2 tokenizer and ours have none.
-    const auto ranges =
-        split_ranges(text, static_cast<std::size_t>(num_threads()));
+    // parallel_for runs inline unless it has at least 2 elements per thread,
+    // so the text is cut into several ranges per thread; each thread then
+    // takes a contiguous block of them.
+    const auto ranges = split_at_end_of_text(
+        text, kRangesPerThread * static_cast<std::size_t>(num_threads()));
     std::vector<std::vector<std::int32_t>> parts(ranges.size());
     parallel_for(0, static_cast<std::int64_t>(ranges.size()),
                  [&](std::int64_t first, std::int64_t last) {
