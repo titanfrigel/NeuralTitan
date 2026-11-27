@@ -25,6 +25,7 @@
 #include "runtime/hf_model.hpp"
 #include "runtime/sampler.hpp"
 #include "support/golden.hpp"
+#include "tokenizer/tokenizer.hpp"
 
 namespace {
 
@@ -141,6 +142,16 @@ GoldenFiles load_golden(const std::filesystem::path& dir) {
             SafetensorsFile::open(dir / "golden.safetensors")};
 }
 
+// The tolerance of the pass conditions (docs/math/hf-llama.md). The fixture
+// records the tolerance it was made for; a different value there fails here
+// instead of silently changing the bound.
+constexpr double kTolerance = 1e-3;
+
+double tolerance_of(const GoldenFiles& golden) {
+    TITAN_EXPECT_EQ(golden.json.at("tolerance").as_number(), kTolerance);
+    return kTolerance;
+}
+
 std::vector<float> read_tensor(const SafetensorsFile& file,
                                const std::string& name) {
     const auto* entry = file.find(name);
@@ -169,8 +180,8 @@ HfModel load_on(const std::filesystem::path& dir, Device device) {
     return hf;
 }
 
-// The logits (T, vocab) of one inference forward over the whole prompt, on
-// the CPU.
+// The logits (T, vocab) of one inference forward over the whole prompt,
+// copied to the host.
 std::vector<float> prompt_logits(titan::model::Model& model,
                                  const std::vector<std::int32_t>& ids) {
     titan::nn::ForwardContext ctx;
@@ -220,12 +231,40 @@ const char* device_name(Device device) {
 }
 
 // ---------------------------------------------------------------------------
+// The prompts: every fixture prompt's ids are what our tokenizer makes of its
+// text, so the parity tests feed the model the reference's input. SmolLM2's
+// tokenizer is the committed copy, so this runs without the weights.
+
+void expect_prompt_ids(const std::filesystem::path& tokenizer_path,
+                       const JsonValue& prompts) {
+    const auto tok = titan::tokenizer::load_tokenizer(
+        titan::io::parse_json(titan::io::read_file(tokenizer_path)));
+    for (const JsonValue& prompt : prompts.as_array()) {
+        TITAN_EXPECT(tok->encode(prompt.at("text").as_string()) ==
+                     int_list(prompt.at("ids")));
+    }
+}
+
+TITAN_TEST(HfGolden, PromptIdsMatchTokenizer) {
+    const GoldenFiles tiny = load_golden(kFixtures / "tiny_llama");
+    tolerance_of(tiny);
+    for (const char* name : {"tied", "untied"}) {
+        expect_prompt_ids(kFixtures / "tiny_llama" / name / "tokenizer.json",
+                          tiny.json.at(name));
+    }
+    const GoldenFiles smollm2 = load_golden(kFixtures / "smollm2");
+    tolerance_of(smollm2);
+    expect_prompt_ids(kFixtures / "smollm2" / "tokenizer.json",
+                      smollm2.json.at("prompts"));
+}
+
+// ---------------------------------------------------------------------------
 // The tiny models: full logits at every prompt position, 16 greedy tokens.
 
 void tiny_logits(Device device) {
     const std::filesystem::path dir = kFixtures / "tiny_llama";
     const GoldenFiles golden = load_golden(dir);
-    const double tol = golden.json.at("tolerance").as_number();
+    const double tol = tolerance_of(golden);
     for (const char* name : {"tied", "untied"}) {
         HfModel hf = load_on(dir / name, device);
         const auto& prompts = golden.json.at(name).as_array();
@@ -245,7 +284,7 @@ void tiny_logits(Device device) {
 void tiny_greedy(Device device) {
     const std::filesystem::path dir = kFixtures / "tiny_llama";
     const GoldenFiles golden = load_golden(dir);
-    const double tol = golden.json.at("tolerance").as_number();
+    const double tol = tolerance_of(golden);
     for (const char* name : {"tied", "untied"}) {
         HfModel hf = load_on(dir / name, device);
         const auto& prompts = golden.json.at(name).as_array();
@@ -284,7 +323,7 @@ void skip_without_smollm2() {
 
 void smollm2_logits(Device device) {
     const GoldenFiles golden = load_golden(kFixtures / "smollm2");
-    const double tol = golden.json.at("tolerance").as_number();
+    const double tol = tolerance_of(golden);
     const std::vector<std::int32_t> samples =
         int_list(golden.json.at("sample_ids"));
     HfModel hf = load_on(kSmolLM2Dir, device);
@@ -317,7 +356,7 @@ void smollm2_logits(Device device) {
 
 void smollm2_greedy(Device device) {
     const GoldenFiles golden = load_golden(kFixtures / "smollm2");
-    const double tol = golden.json.at("tolerance").as_number();
+    const double tol = tolerance_of(golden);
     HfModel hf = load_on(kSmolLM2Dir, device);
     const auto& prompts = golden.json.at("prompts").as_array();
     for (std::size_t i = 0; i < prompts.size(); ++i) {

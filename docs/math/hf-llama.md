@@ -211,4 +211,5 @@ The tests do catch real mistakes. Swapping `input_layernorm` and `post_attention
 | `scale = max(1, max \|ref\|)`, `max \|Δ\| ≤ tol · scale` | `test::compare_logits` in `tests/support/golden.cpp` |
 | The near-tie rule | `test::compare_greedy` in `tests/support/golden.cpp` |
 | The comparisons per model, prompt and device | `HfGolden.*` in `tests/runtime/hf_golden_test.cpp` |
+| `tol = 1e-3`, which the fixtures must record, and the prompt ids, which must be what our tokenizer makes of the prompt text | `kTolerance` and `HfGolden.PromptIdsMatchTokenizer` in `tests/runtime/hf_golden_test.cpp` |
 | The reference values | `tools/make_llama_fixtures.py --golden` |
