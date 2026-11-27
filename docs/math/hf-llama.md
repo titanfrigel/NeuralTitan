@@ -200,7 +200,7 @@ From `HfGolden.*` in `tests/runtime/hf_golden_test.cpp` (release build, an RTX 3
 | SmolLM2, `def fibonacci(n):\n` | 2.8e-6 | 3.6e-6 | 32 / 32 |
 | SmolLM2, `Café au lait, s'il vous plaît.` | 2.8e-6 | 4.7e-6 | 32 / 32 |
 
-The scales are 5.3 to 6.1 for the tiny models and 21 to 33 for SmolLM2. The worst error, `4.9e-6`, is 200 times below the tolerance, and no greedy run needed the near-tie rule.
+The scales are 5.3 to 6.1 for the tiny models and 21 to 33 for SmolLM2. The worst error, `4.9e-6`, is 200 times below the tolerance, and no greedy run needed the near-tie rule. The README's [M5 result](../../README.md#m5-result) adds SmolLM2's 64-token greedy output from `titan generate --hf-model` and its speed on the CPU and CUDA.
 
 The tests do catch real mistakes. Swapping `input_layernorm` and `post_attention_layernorm` in the name map gives errors of 0.54 to 0.68 times the scale on the tiny models and 1.1 to 1.3 times on SmolLM2, and greedy divergences at step 0 or 1 for every prompt. Loading `rope_theta` as 10000 instead of 100000 gives 0.09 to 0.22 times the scale on the tiny models and 0.02 to 0.13 on SmolLM2, and greedy divergences at gaps of 0.07 to 0.8. A fresh Hugging Face model has every norm weight equal to 1, which would make the norms interchangeable and hide the swap, so the fixture script sets the tiny models' norm weights to `1 + 0.1 · N(0, 1)` before saving them.
 

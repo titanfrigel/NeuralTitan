@@ -35,17 +35,20 @@ void tokenizer_encode(std::span<const std::string_view> args);
 // "train".
 void train(std::span<const std::string_view> args);
 
-// `titan generate --checkpoint <file> [--prompt <text>] [--max-new N]
-//  [--temp T] [--top-k K] [--top-p P] [--seed S] [--device cpu|cuda]
-//  [--no-cache]`: echoes the prompt (default a newline), then streams the
-// text of each sampled token to stdout, holding back the bytes of an
-// incomplete UTF-8 character until a later token completes it, and writes
-// tokens/s to stderr. Generation stops early at the tokenizer's end-of-text
-// token, which is not printed. Defaults:
-// --temp 0.8 --top-k 0 --top-p 0.9 --max-new 500, --seed the checkpoint's
-// train.seed. --no-cache recomputes the whole window per token
-// (generate_naive) for comparison. `args` are the arguments after
-// "generate".
+// `titan generate (--checkpoint <file> | --hf-model <dir>) [--prompt <text>]
+//  [--max-new N] [--temp T] [--top-k K] [--top-p P] [--seed S]
+//  [--device cpu|cuda] [--no-cache]`: echoes the prompt (default a newline),
+// then streams the text of each sampled token to stdout, holding back the
+// bytes of an incomplete UTF-8 character until a later token completes it,
+// and writes tokens/s to stderr. Generation stops early at the tokenizer's
+// end-of-text token, which is not printed. --hf-model loads a Hugging Face
+// Llama directory (config.json, tokenizer.json, model.safetensors) with
+// runtime::load_hf_model; exactly one of --checkpoint and --hf-model is
+// required. Defaults: --temp 0.8 --top-k 0 --top-p 0.9 --max-new 500, --seed
+// the checkpoint's train.seed or 0 with --hf-model, --device cuda when a GPU
+// is available. --no-cache recomputes the whole window per token
+// (generate_naive) for comparison. A file that fails to load prints nothing
+// to stdout. `args` are the arguments after "generate".
 void generate(std::span<const std::string_view> args);
 
 // `titan bench matmul [--sizes 256,512,1024,2048,4096] [--repeat 10]`: times

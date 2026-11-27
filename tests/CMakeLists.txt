@@ -456,3 +456,30 @@ add_test(NAME cli_generate_bpe_utf8
     -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_valid_utf8.cmake)
 set_tests_properties(cli_generate_bpe_utf8 PROPERTIES
   FIXTURES_REQUIRED smollm2_checkpoint)
+
+# titan generate --hf-model. The tiny tied model's greedy output is the
+# Hugging Face reference: expected_greedy.txt is written by
+# tools/make_llama_fixtures.py from the same run as tiny_llama/golden.json.
+set(TINY_TIED ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/tiny_llama/tied)
+add_test(NAME cli_generate_hf_tiny
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    "-DARGS=generate;--hf-model;${TINY_TIED};--prompt;the king;--temp;0;--max-new;16;--device;cpu"
+    -DEXPECTED=${TINY_TIED}/expected_greedy.txt
+    -DOUT_FILE=${CLI_OUT}/hf_tiny/stdout.txt
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_stdout_file.cmake)
+
+# Exactly one of --checkpoint and --hf-model.
+add_test(NAME cli_generate_model_source
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    "-DCASES=generate;--hf-model;${TINY_TIED};--checkpoint;${CLI_OUT}/missing.ckpt;--device;cpu;|;generate;--prompt;the king;--device;cpu"
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_usage_cases.cmake)
+
+# bad-hf-model holds only config.json, with an unsupported rope_scaling. The
+# error names rope_scaling rather than a missing tokenizer.json or
+# model.safetensors, so this test also pins load_hf_model's order: config.json
+# is validated before any other file is opened.
+add_cli_quiet_failure(cli_generate_hf_bad_config
+  "error: .*config[.]json.*rope_scaling"
+  "generate;--hf-model;${CLI_FIXTURES}/bad-hf-model;--device;cpu")

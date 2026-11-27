@@ -35,6 +35,10 @@ int usage() {
                  "       titan generate --checkpoint <file> [--prompt <text>] "
                  "[--max-new N] [--temp T] [--top-k K] [--top-p P] [--seed S] "
                  "[--device cpu|cuda] [--no-cache]\n"
+                 "       titan generate --hf-model <dir> [--prompt <text>] "
+                 "[--max-new N] [--temp T] [--top-k K] [--top-p P] [--seed S] "
+                 "[--device cpu|cuda] [--no-cache] (--seed defaults to 0 "
+                 "here, to the checkpoint's seed with --checkpoint)\n"
                  "       titan bench matmul [--sizes 256,512,1024,2048,4096] "
                  "[--repeat 10]\n";
     return kExitUsage;

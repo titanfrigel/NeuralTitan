@@ -27,6 +27,7 @@
 #include "ops/matmul.hpp"
 #include "runtime/checkpoint.hpp"
 #include "runtime/generator.hpp"
+#include "runtime/hf_model.hpp"
 #include "runtime/sampler.hpp"
 #include "runtime/trainer.hpp"
 #include "tokenizer/bpe_trainer.hpp"
@@ -516,79 +517,64 @@ void train(std::span<const std::string_view> args) {
     }
 }
 
-void generate(std::span<const std::string_view> args) {
-    const Flags flags = parse_flags(args,
-                                    {"checkpoint", "prompt", "max-new", "temp",
-                                     "top-k", "top-p", "seed", "device"},
-                                    {"checkpoint"}, {"no-cache"});
+namespace {
 
-    // 1. Every flag, before any file is read.
-    runtime::SamplerConfig sampler{kGenerateTemperature, 0, kGenerateTopP};
-    if (flags.contains("temp")) {
-        sampler.temperature = parse_float(flags.at("temp"));
-    }
-    if (flags.contains("top-k")) sampler.top_k = parse_steps(flags.at("top-k"));
-    if (flags.contains("top-p")) sampler.top_p = parse_float(flags.at("top-p"));
-    try {
-        runtime::validate(sampler);
-    } catch (const Error&) {
-        throw UsageError{};
-    }
-    const std::int64_t max_new = flags.contains("max-new")
-                                     ? parse_positive(flags.at("max-new"))
-                                     : kGenerateMaxNew;
-    std::optional<std::uint64_t> seed;
-    if (flags.contains("seed")) seed = parse_seed(flags.at("seed"));
-    const bool use_cache = !flags.contains("no-cache");
-    const Device device = select_device(flags);
-
-    // 2. The checkpoint header, the tokenizer and the prompt: a damaged file
-    // or an unknown character fails here, before any output.
-    const fs::path path = flags.at("checkpoint");
-    const runtime::Checkpoint header = runtime::load_checkpoint(path, nullptr);
-    const std::unique_ptr<tokenizer::Tokenizer> tok =
-        runtime::checkpoint_tokenizer(path, header);
+// The prompt ids: --prompt encoded, or sample_prompt without it. An unknown
+// character or an empty prompt fails here, before any output.
+std::vector<std::int32_t> generation_prompt(const Flags& flags,
+                                            const tokenizer::Tokenizer& tok) {
+    if (!flags.contains("prompt")) return sample_prompt(tok);
     std::vector<std::int32_t> prompt;
-    if (flags.contains("prompt")) {
-        try {
-            prompt = tok->encode(flags.at("prompt"));
-        } catch (const Error& e) {
-            throw Error(std::string("--prompt: ") + e.what());
-        }
-        TITAN_CHECK(!prompt.empty(), "--prompt is empty");
-    } else {
-        prompt = sample_prompt(*tok);
+    try {
+        prompt = tok.encode(flags.at("prompt"));
+    } catch (const Error& e) {
+        throw Error(std::string("--prompt: ") + e.what());
     }
+    TITAN_CHECK(!prompt.empty(), "--prompt is empty");
+    return prompt;
+}
 
-    // 3. The model, moved to its device before the Generator builds its
-    // cache there.
-    model::Model model(header.model);
-    runtime::load_checkpoint(path, &model);
-    model.to(device);
-    const std::uint64_t generation_seed = seed.value_or(header.train.seed);
+// What titan generate's flags ask for, independent of where the model comes
+// from.
+struct GenerateOptions {
+    runtime::SamplerConfig sampler;
+    std::int64_t max_new{};
+    std::optional<std::uint64_t> seed;
+    bool use_cache{};
+    Device device{};
+};
+
+// Moves `model` to options.device, echoes the prompt, then streams each
+// token as soon as it is sampled and writes tokens/s to stderr. `seed` is the
+// generation seed (options.seed has already been applied by the caller).
+void stream_generation(model::Model& model, const tokenizer::Tokenizer& tok,
+                       const std::vector<std::int32_t>& prompt,
+                       const GenerateOptions& options, std::uint64_t seed) {
+    // The model is moved to its device before the Generator builds its cache
+    // there.
+    model.to(options.device);
     std::optional<runtime::Generator> generator;
-    if (use_cache) generator.emplace(model, sampler, generation_seed);
+    if (options.use_cache) generator.emplace(model, options.sampler, seed);
 
-    // 4. Echo the prompt, then stream each token as soon as it is sampled.
     // A BPE token may hold only part of a UTF-8 character, so the decoded
     // bytes go through a Utf8Stream: each step prints the complete part and
     // the stream keeps the incomplete tail until a later token completes it.
     Utf8Stream stream;
-    std::cout << stream.push(tok->decode(prompt)) << std::flush;
+    std::cout << stream.push(tok.decode(prompt)) << std::flush;
     std::int64_t generated = 0;
     const auto on_token = [&](std::int32_t id) {
         ++generated;
-        std::cout << stream.push(tok->decode(std::span(&id, 1))) << std::flush;
+        std::cout << stream.push(tok.decode(std::span(&id, 1))) << std::flush;
     };
     // The end-of-text token, when the tokenizer has one, ends generation.
-    const std::optional<std::int32_t> stop_id = tok->eos_id();
+    const std::optional<std::int32_t> stop_id = tok.eos_id();
     const auto start = std::chrono::steady_clock::now();
     if (generator) {
-        generator->generate(prompt, max_new, on_token, stop_id);
+        generator->generate(prompt, options.max_new, on_token, stop_id);
     } else {
-        Rng rng(generation_seed);
-        runtime::generate_naive(model, prompt, max_new, sampler, rng, on_token,
-                                stop_id);
+        Rng rng(seed);
+        runtime::generate_naive(model, prompt, options.max_new, options.sampler,
+                                rng, on_token, stop_id);
     }
     const std::chrono::duration<double> elapsed =
         std::chrono::steady_clock::now() - start;
@@ -598,8 +584,82 @@ void generate(std::span<const std::string_view> args) {
     std::cerr << std::fixed << std::setprecision(1) << "tokens/s "
               << static_cast<double>(generated) / elapsed.count() << " ("
               << generated << " tokens in " << std::setprecision(3)
-              << elapsed.count() << " s, " << (use_cache ? "cache" : "no cache")
-              << ", " << to_string(device) << ")\n";
+              << elapsed.count() << " s, "
+              << (options.use_cache ? "cache" : "no cache") << ", "
+              << to_string(options.device) << ")\n";
+}
+
+// titan generate --checkpoint: the header, the tokenizer and the prompt are
+// read before the weights, so a damaged file or an unknown character fails
+// before any output.
+void generate_from_checkpoint(const fs::path& path, const Flags& flags,
+                              const GenerateOptions& options) {
+    const runtime::Checkpoint header = runtime::load_checkpoint(path, nullptr);
+    const std::unique_ptr<tokenizer::Tokenizer> tok =
+        runtime::checkpoint_tokenizer(path, header);
+    const std::vector<std::int32_t> prompt = generation_prompt(flags, *tok);
+    model::Model model(header.model);
+    runtime::load_checkpoint(path, &model);
+    stream_generation(model, *tok, prompt, options,
+                      options.seed.value_or(header.train.seed));
+}
+
+// titan generate --hf-model: load_hf_model reads and validates every file
+// (config.json first) on the CPU before the prompt is encoded; any failure
+// comes before output. A Hugging Face model has no training seed, so the
+// seed defaults to 0.
+void generate_from_hf_model(const fs::path& dir, const Flags& flags,
+                            const GenerateOptions& options) {
+    runtime::HfModel hf = runtime::load_hf_model(dir);
+    const std::vector<std::int32_t> prompt =
+        generation_prompt(flags, *hf.tokenizer);
+    stream_generation(*hf.model, *hf.tokenizer, prompt, options,
+                      options.seed.value_or(0));
+}
+
+}  // namespace
+
+void generate(std::span<const std::string_view> args) {
+    const Flags flags =
+        parse_flags(args,
+                    {"checkpoint", "hf-model", "prompt", "max-new", "temp",
+                     "top-k", "top-p", "seed", "device"},
+                    {}, {"no-cache"});
+    // Exactly one model source.
+    if (flags.contains("checkpoint") == flags.contains("hf-model")) {
+        throw UsageError{};
+    }
+
+    // 1. Every flag, before any file is read.
+    GenerateOptions options;
+    options.sampler = {kGenerateTemperature, 0, kGenerateTopP};
+    if (flags.contains("temp")) {
+        options.sampler.temperature = parse_float(flags.at("temp"));
+    }
+    if (flags.contains("top-k")) {
+        options.sampler.top_k = parse_steps(flags.at("top-k"));
+    }
+    if (flags.contains("top-p")) {
+        options.sampler.top_p = parse_float(flags.at("top-p"));
+    }
+    try {
+        runtime::validate(options.sampler);
+    } catch (const Error&) {
+        throw UsageError{};
+    }
+    options.max_new = flags.contains("max-new")
+                          ? parse_positive(flags.at("max-new"))
+                          : kGenerateMaxNew;
+    if (flags.contains("seed")) options.seed = parse_seed(flags.at("seed"));
+    options.use_cache = !flags.contains("no-cache");
+    options.device = select_device(flags);
+
+    // 2. The model, its tokenizer and the prompt, then the stream.
+    if (flags.contains("checkpoint")) {
+        generate_from_checkpoint(flags.at("checkpoint"), flags, options);
+    } else {
+        generate_from_hf_model(flags.at("hf-model"), flags, options);
+    }
 }
 
 void bench(std::span<const std::string_view> args) {
