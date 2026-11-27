@@ -2,6 +2,7 @@ add_library(titan_runtime STATIC
   checkpoint.cpp
   data_loader.cpp
   generator.cpp
+  hf_model.cpp
   sampler.cpp
   trainer.cpp)
 

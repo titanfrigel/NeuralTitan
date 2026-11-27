@@ -20,7 +20,8 @@ const char* json_kind_name(const JsonValue& v);
 class JsonFields {
 public:
     // `context` names the kind of config ("model config"), `path` the object's
-    // place in the file ("model", "model.blocks[2]").
+    // place in the file ("model", "model.blocks[2]"), or is empty for the
+    // file's top-level object, whose keys are then their own paths.
     JsonFields(const JsonValue& value, std::string context, std::string path,
                std::initializer_list<std::string_view> allowed);
 

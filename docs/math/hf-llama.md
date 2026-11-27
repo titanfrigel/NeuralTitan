@@ -1,6 +1,6 @@
 # Hugging Face Llama weights
 
-How NeuralTitan reads a Hugging Face Llama checkpoint such as SmolLM2-135M. This note grows with milestone M5; it starts with the conversion of the stored 16-bit floats to FP32.
+How NeuralTitan reads a Hugging Face Llama checkpoint such as SmolLM2-135M. This note grows with milestone M5: the conversion of the stored 16-bit floats to FP32, then the mapping of a Hugging Face Llama onto our model.
 
 ## What it computes
 
@@ -78,3 +78,69 @@ The golden fixtures are produced by Hugging Face in FP32 from the same BF16 weig
 | F16 normal, zero, subnormal, infinity and NaN cases | `io::f16_to_f32` in `src/io/safetensors.cpp` |
 | The conversion of a whole tensor | `io::SafetensorsFile::read_f32`, which reads one tensor's byte range and converts it element by element |
 | The bounds and contiguity checks of the file format | `io::SafetensorsFile::open`, whose layout and checks are described in `src/io/safetensors.hpp` |
+
+## Mapping a Hugging Face Llama onto our model
+
+### The config
+
+A Hugging Face `LlamaForCausalLM` is our decoder-only model with one block kind repeated `num_hidden_layers` times: pre-norm RMSNorm, grouped-query attention with half-split RoPE, a SwiGLU MLP, no biases anywhere, then a final RMSNorm and the head. So `config.json` maps onto a `ModelConfig` field by field:
+
+| `config.json` | `ModelConfig` | SmolLM2-135M |
+| --- | --- | --- |
+| `vocab_size` | `vocab_size` | 49152 |
+| `hidden_size` | `dim` | 576 |
+| `max_position_embeddings` | `context_length` | 8192 |
+| `rope_theta`, or `rope_parameters.rope_theta` | `rope_theta` | 100000 |
+| `rms_norm_eps` | `norm_eps` | 1e-5 |
+| `tie_word_embeddings` (default false) | `tied_embeddings` | true |
+| `num_hidden_layers` | the number of blocks | 30 |
+| `num_attention_heads` | `n_heads` of every block | 9 |
+| `num_key_value_heads` (default `num_attention_heads`) | `n_kv_heads` of every block | 3 |
+| `intermediate_size` | `mlp_hidden` of every block | 1536 |
+| (fixed) | `mlp` "swiglu", `norm` "rmsnorm", `position` "rope", `final_norm` "rmsnorm" | |
+
+The head dimension is `hidden_size / num_attention_heads` (576 / 9 = 64 for SmolLM2), so the `k_proj` and `v_proj` output size is `num_key_value_heads · 64 = 192`. RoPE rotates the pairs `(i, i + 32)` of each head, which is Hugging Face's `rotate_half` layout and the one of [rope.md](rope.md).
+
+Every other key either changes the computation or does not. The keys that would change it are accepted only at the value our model computes: `hidden_act` "silu" (SwiGLU's gate is SiLU), `attention_bias` and `mlp_bias` false (our projections have no bias), `rope_scaling` null and `rope_parameters.rope_type` "default" (no rescaled frequencies), `rope_interleaved` false (pairs `(i, i + hd/2)`, not `(2i, 2i + 1)`), `pretraining_tp` 1 (no sliced MLP matmuls) and `head_dim` equal to `hidden_size / num_attention_heads`. Informational keys (`dtype`, `initializer_range`, `use_cache`, ...) are ignored, and any key outside both lists is rejected, so a config of a different architecture cannot load silently as a wrong model. transformers 4.x writes `rope_theta` and `torch_dtype`, 5.x writes `rope_parameters` and `dtype`; both forms load.
+
+### The tensors
+
+Both libraries store a linear layer's weight as `(out, in)` and compute `y = x · Wᵀ`, so every tensor is copied as it is, with no transpose. Only the names differ:
+
+| Hugging Face | Ours | Shape |
+| --- | --- | --- |
+| `model.embed_tokens.weight` | `embed_tokens.weight` | `(vocab, dim)` |
+| `model.layers.N.input_layernorm.weight` | `blocks.N.norm1.weight` | `(dim)` |
+| `model.layers.N.self_attn.q_proj.weight` | `blocks.N.attn.q_proj.weight` | `(dim, dim)` |
+| `model.layers.N.self_attn.k_proj.weight` | `blocks.N.attn.k_proj.weight` | `(n_kv_heads · head_dim, dim)` |
+| `model.layers.N.self_attn.v_proj.weight` | `blocks.N.attn.v_proj.weight` | `(n_kv_heads · head_dim, dim)` |
+| `model.layers.N.self_attn.o_proj.weight` | `blocks.N.attn.o_proj.weight` | `(dim, dim)` |
+| `model.layers.N.post_attention_layernorm.weight` | `blocks.N.norm2.weight` | `(dim)` |
+| `model.layers.N.mlp.gate_proj.weight` | `blocks.N.mlp.gate_proj.weight` | `(hidden, dim)` |
+| `model.layers.N.mlp.up_proj.weight` | `blocks.N.mlp.up_proj.weight` | `(hidden, dim)` |
+| `model.layers.N.mlp.down_proj.weight` | `blocks.N.mlp.down_proj.weight` | `(dim, hidden)` |
+| `model.norm.weight` | `final_norm.weight` | `(dim)` |
+| `lm_head.weight` (untied only) | `lm_head.weight` | `(vocab, dim)` |
+
+With tied embeddings the head computes `logits = h · Eᵀ` with the embedding table `E` itself, so the file holds no `lm_head.weight` and one is rejected; without them it must be present. The q and k projections need no permutation either: the permutation some conversion scripts apply exists only to turn Meta's interleaved RoPE into `rotate_half`, and the Hugging Face weights are already in the `rotate_half` layout.
+
+For SmolLM2 the counts are `49152 · 576 = 28,311,552` for the tied embedding, `2 · 576 + 2 · 576² + 2 · 192 · 576 + 3 · 1536 · 576 = 3,540,096` per layer, and 576 for the final norm: `28,311,552 + 30 · 3,540,096 + 576 = 134,515,008` parameters.
+
+### Loading order
+
+`load_hf_model` treats every file as untrusted and changes nothing until everything is checked:
+
+1. `config.json` is parsed and validated first, before any other file is opened.
+2. `tokenizer.json` must have `vocab_size` tokens and `eos_token_id` as its end-of-text token.
+3. From the safetensors header alone, every tensor name must map to a distinct parameter, every parameter must have a tensor, and the element counts must add up to the config's parameter count. The header is bounded by the file size, so a config that claims a huge model fails here instead of in an allocation.
+4. The model is built, and each tensor's shape must equal its parameter's.
+5. The tensors are read one at a time and widened to FP32 into the parameters.
+
+### Mapping the loader to code
+
+| Step | Code |
+| --- | --- |
+| `config.json` to `ModelConfig`, with every key's check | `runtime::parse_hf_llama_config` in `src/runtime/hf_model.cpp` |
+| The name table | `runtime::hf_to_titan_name` and `kLayerTensors` in `src/runtime/hf_model.cpp` |
+| The loading order and the checks of each step | `runtime::load_hf_model` in `src/runtime/hf_model.cpp` |
+| The tiny test models | `tools/make_llama_fixtures.py --tiny`, which writes `tests/fixtures/tiny_llama/` |
