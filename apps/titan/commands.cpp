@@ -417,9 +417,9 @@ void train_new(const Flags& flags, Device device,
     const bool from_tokens = flags.contains("train-tokens");
     const io::JsonValue config =
         io::parse_json(io::read_file(flags.at("config")));
-    const std::string corpus =
-        from_tokens ? std::string()
-                    : io::read_file(flags.at("data"), kMaxCorpusBytes);
+    std::string corpus = from_tokens
+                             ? std::string()
+                             : io::read_file(flags.at("data"), kMaxCorpusBytes);
 
     // Everything that can fail on bad input runs before anything is written
     // or any training starts: config sections, --stop-at, tokenizer, token
@@ -466,6 +466,9 @@ void train_new(const Flags& flags, Device device,
     } else {
         const std::vector<std::int32_t> tokens =
             tokenizer::encode_chunked(*tok, corpus);
+        // The text is no longer needed (the tokenizer, if built from it, is
+        // done); release it so a large corpus is not held for the whole run.
+        std::string().swap(corpus);
         const auto n = static_cast<std::int64_t>(tokens.size());
         const std::int64_t n_val =
             std::max(min_split, static_cast<std::int64_t>(std::floor(
