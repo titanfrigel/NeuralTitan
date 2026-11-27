@@ -160,6 +160,11 @@ TITAN_TEST(Safetensors, ConvertsBf16) {
     TITAN_EXPECT_EQ(bf16_to_f32(0xFF80),
                     -std::numeric_limits<float>::infinity());
     TITAN_EXPECT(std::isnan(bf16_to_f32(0x7FC0)));
+    // A normal number with a nonzero mantissa: 0x3FC0 = 1.1b · 2^0.
+    TITAN_EXPECT_EQ(bf16_to_f32(0x3FC0), 1.5F);
+    // The NaN payload is kept: the 16 bits become the top half of the FP32.
+    TITAN_EXPECT_EQ(std::bit_cast<std::uint32_t>(bf16_to_f32(0x7FC1)),
+                    std::uint32_t{0x7FC10000});
 }
 
 TITAN_TEST(Safetensors, ConvertsF16) {
@@ -171,6 +176,14 @@ TITAN_TEST(Safetensors, ConvertsF16) {
     TITAN_EXPECT_EQ(f16_to_f32(0x7C00), std::numeric_limits<float>::infinity());
     TITAN_EXPECT(std::isnan(f16_to_f32(0x7E00)));
     TITAN_EXPECT(is_negative_zero(f16_to_f32(0x8000)));
+    TITAN_EXPECT_EQ(f16_to_f32(0xFC00),
+                    -std::numeric_limits<float>::infinity());
+    // A negative subnormal keeps its sign: -1 · 2^-24.
+    TITAN_EXPECT_EQ(f16_to_f32(0x8001), -std::ldexp(1.0F, -24));
+    // The NaN payload 0x201 moves to the top of the 23-bit mantissa:
+    // 0x201 << 13 = 0x402000.
+    TITAN_EXPECT_EQ(std::bit_cast<std::uint32_t>(f16_to_f32(0x7E01)),
+                    std::uint32_t{0x7FC02000});
 }
 
 TITAN_TEST(Safetensors, EmptyTensor) {
@@ -207,6 +220,28 @@ TITAN_TEST(Safetensors, RejectsHeaderPastEnd) {
     bytes += "{}";
     TITAN_EXPECT(bytes_reject("titan_st_header_past.safetensors", bytes,
                               {"header length 100", "past the end"}));
+}
+
+TITAN_TEST(Safetensors, RejectsHugeHeader) {
+    // N = 2^27, over the 100 MiB cap, and nothing after the prefix: the cap
+    // is checked before the length is compared with the file or allocated.
+    std::string bytes(8, '\0');
+    bytes[3] = 0x08;
+    TITAN_EXPECT(bytes_reject(
+        "titan_st_huge_header.safetensors", bytes,
+        {"header length 134217728", "over the limit of 104857600 bytes"}));
+}
+
+TITAN_TEST(Safetensors, RejectsTrailingHeaderBytes) {
+    TITAN_EXPECT(header_rejects("titan_st_trailing.safetensors", "{}x", 0,
+                                {"header is not valid JSON"}));
+}
+
+TITAN_TEST(Safetensors, RejectsEmptyTensorName) {
+    TITAN_EXPECT(header_rejects(
+        "titan_st_empty_name.safetensors",
+        R"({"":{"dtype":"F32","shape":[1],"data_offsets":[0,4]}})", 4,
+        {"empty tensor name"}));
 }
 
 TITAN_TEST(Safetensors, RejectsNonObjectHeader) {

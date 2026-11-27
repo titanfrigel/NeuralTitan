@@ -205,6 +205,7 @@ SafetensorsFile SafetensorsFile::open(const std::filesystem::path& path) {
             }
             f.metadata_ = value;
         } else {
+            TITAN_CHECK(!key.empty(), context + ": empty tensor name");
             f.entries_.push_back(parse_entry(key, value, data_len, context));
         }
     }

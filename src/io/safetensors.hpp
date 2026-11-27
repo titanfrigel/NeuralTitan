@@ -40,12 +40,13 @@ struct SafetensorsEntry {
 //                 packed with no gaps or overlaps
 //
 // open() reads only the header and treats the file as untrusted: it checks the
-// header length against the file size and the cap, then every entry (exactly
-// the keys dtype, shape and data_offsets; a supported dtype; non-negative
-// dimensions whose product does not overflow; a byte range that matches the
-// shape and lies inside the data section) and finally that the ranges, sorted
-// by begin, tile the data section exactly. Each failure throws titan::Error
-// naming the file and, where one applies, the tensor.
+// header length against the file size and the cap, then every entry (a
+// non-empty tensor name; exactly the keys dtype, shape and data_offsets; a
+// supported dtype; non-negative dimensions whose product does not overflow; a
+// byte range that matches the shape and lies inside the data section) and
+// finally that the ranges, sorted by begin, tile the data section exactly. Each
+// failure throws titan::Error naming the file and, where one applies, the
+// tensor.
 //
 // read_f32 opens the file again for every call and reads only that tensor's
 // byte range. Keeping no stream open makes the object cheap to move and lets
