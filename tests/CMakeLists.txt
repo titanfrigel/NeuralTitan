@@ -17,6 +17,7 @@ target_sources(titan_tests PRIVATE
   core/utf8_test.cpp
   core/parallel_test.cpp
   core/cuda_toolchain_test.cu
+  support/golden.cpp
   support/gradcheck.cpp
   support/gradcheck_test.cpp
   support/parity.cpp
@@ -74,6 +75,7 @@ target_sources(titan_tests PRIVATE
   runtime/generator_test.cpp
   runtime/hf_model_test.cpp
   runtime/golden_test.cpp
+  runtime/hf_golden_test.cpp
 )
 # The CUDA tests call the runtime directly, so they link cudart themselves
 # instead of relying on titan_core, which keeps it private.

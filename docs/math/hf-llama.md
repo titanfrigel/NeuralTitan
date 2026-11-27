@@ -144,3 +144,71 @@ For SmolLM2 the counts are `49152 · 576 = 28,311,552` for the tied embedding, `
 | The name table | `runtime::hf_to_titan_name` and `kLayerTensors` in `src/runtime/hf_model.cpp` |
 | The loading order and the checks of each step | `runtime::load_hf_model` in `src/runtime/hf_model.cpp` |
 | The tiny test models | `tools/make_llama_fixtures.py --tiny`, which writes `tests/fixtures/tiny_llama/` |
+
+## Tolerance
+
+The pass condition of M5 is that our model computes what Hugging Face computes. Both sides run in FP32 from bit-identical weights (see [Why exactness matters](#why-exactness-matters)), but they cannot be expected to agree bit for bit, so the comparison needs a tolerance and a rule for greedy generation.
+
+### What is compared
+
+The reference is Hugging Face transformers in FP32 on the CPU with eager attention, run by `tools/make_llama_fixtures.py --golden`. For every fixture prompt:
+
+- **Logits.** For the two tiny models, the full logits `(T, 512)` at every prompt position. For SmolLM2-135M, the full last-position logits (49152 values) and the logits of 1024 seeded vocabulary ids at every prompt position (`T · 1024` values); storing all `T · 49152` would make the fixture several megabytes. Ours come from one inference forward over the whole prompt. All the values of a prompt form one comparison, with one scale.
+- **Greedy tokens.** 16 tokens for the tiny models and 32 for SmolLM2, from `generate(do_sample=False)` on the reference side and from our KV-cached `Generator` at temperature 0 on ours, both stopping at end-of-text. A run that stops there has the end-of-text token as its last step on both sides.
+
+### The logit tolerance is relative
+
+A prompt passes when
+
+```text
+max |ours − ref| ≤ tol · scale,   scale = max(1, max |ref|),   tol = 1e-3
+```
+
+over every compared value of the prompt. The bound grows with the logits because FP32 rounding errors do: each operation rounds its result to 24 significant bits, a relative error of at most `2^-24 ≈ 6e-8` of the value, so the absolute error of a logit near 30 is about 30 times that of a logit near 1. A fixed absolute bound would be loose for small models and too tight for large ones. The `max(1, ·)` floor keeps a prompt whose logits are all small from being held to a bound below `tol` itself, where the absolute rounding noise of the intermediate activations (which are not small) would dominate.
+
+### Why FP32 sums differ between implementations
+
+Floating-point addition is not associative: `(a + b) + c` and `a + (b + c)` round differently. Every matrix product, RMSNorm and softmax is a long sum (576 to 49152 terms here), and each implementation orders it its own way:
+
+- PyTorch's CPU matmul (oneDNN or MKL) splits the sum into SIMD lanes and cache blocks, and fuses multiply and add.
+- Our CPU matmul sums blocks of 64 terms in FP32 and adds the blocks in FP64 (`src/ops/cpu/matmul.cpp`), and our reductions accumulate in their own order.
+- cuBLAS picks a kernel, and with it a summation tree, by the matrix shape; our CUDA reductions sum per thread and then across a block.
+- `exp`, `rsqrt` and `sin`/`cos` of the RoPE angles come from different math libraries, each correct to about one unit in the last place but not identical.
+
+Each difference is a few units in the last place of one value, and 30 layers pass them on through the residual stream, so the logits differ by about `1e-6` relative to their scale. That is three orders of magnitude below the tolerance, which is set to catch a real error: a wrong mapping or a wrong constant changes the logits by a large fraction of their scale (below).
+
+### The near-tie rule
+
+Greedy decoding takes the argmax. When the reference's two best logits at a step are closer than the logit tolerance, an error within tolerance can swap them, and from that step on the two runs continue different texts. So a greedy run passes when every token matches, or when the first mismatch is at a step whose reference top-2 gap (largest minus second-largest raw FP32 logit) is strictly below `tol = 1e-3`; the comparison of that prompt stops there. A mismatch at any step with a wider gap fails.
+
+The gap is compared with the absolute `tol`, not `tol · scale`, so the rule accepts fewer divergences than the logit bound alone would justify. With the measured errors (about `1e-4` absolute) every step with a gap above `1e-3` is decided the same way on both sides; the smallest reference gaps of the fixture runs are `2.4e-3` (tiny untied, prompt 1) and `7.7e-3` (SmolLM2, prompt 3).
+
+### Measured errors
+
+From `HfGolden.*` in `tests/runtime/hf_golden_test.cpp` (release build, an RTX 3070 Laptop GPU), as `max |ours − ref| / scale`:
+
+| Prompt | CPU | CUDA | Greedy, CPU and CUDA |
+| --- | --- | --- | --- |
+| tiny tied, `to be or not` | 8.0e-7 | 7.0e-7 | 16 / 16 |
+| tiny tied, `the king` | 8.6e-7 | 1.6e-6 | 16 / 16 |
+| tiny tied, `ROMEO:\n` | 9.7e-7 | 1.2e-6 | 16 / 16 |
+| tiny untied, `to be or not` | 8.1e-7 | 7.1e-7 | 16 / 16 |
+| tiny untied, `the king` | 8.3e-7 | 1.5e-6 | 16 / 16 |
+| tiny untied, `ROMEO:\n` | 7.8e-7 | 1.2e-6 | 16 / 16 |
+| SmolLM2, `Once upon a time` | 2.0e-6 | 2.8e-6 | 32 / 32 |
+| SmolLM2, `The capital of France is` | 4.9e-6 | 3.0e-6 | 32 / 32 |
+| SmolLM2, `def fibonacci(n):\n` | 2.8e-6 | 3.6e-6 | 32 / 32 |
+| SmolLM2, `Café au lait, s'il vous plaît.` | 2.8e-6 | 4.7e-6 | 32 / 32 |
+
+The scales are about 6 for the tiny models and 21 to 33 for SmolLM2. The worst error, `4.9e-6`, is 200 times below the tolerance, and no greedy run needed the near-tie rule.
+
+The tests do catch real mistakes. Swapping `input_layernorm` and `post_attention_layernorm` in the name map gives errors of 1.1 to 1.3 times the scale on SmolLM2 and a different first greedy token for every prompt. Loading `rope_theta` as 10000 instead of 100000 gives 0.02 to 0.18 times the scale on every model and greedy divergences at gaps of 0.03 to 0.8. The tiny models do not see the norm swap: their norm weights are Hugging Face's initial ones, all equal to 1, so the two norms are interchangeable there.
+
+### Mapping the comparison to code
+
+| Rule | Code |
+| --- | --- |
+| `scale = max(1, max \|ref\|)`, `max \|Δ\| ≤ tol · scale` | `test::compare_logits` in `tests/support/golden.cpp` |
+| The near-tie rule | `test::compare_greedy` in `tests/support/golden.cpp` |
+| The comparisons per model, prompt and device | `HfGolden.*` in `tests/runtime/hf_golden_test.cpp` |
+| The reference values | `tools/make_llama_fixtures.py --golden` |
