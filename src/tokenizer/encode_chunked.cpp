@@ -43,9 +43,11 @@ std::vector<std::int32_t> encode_chunked(const Tokenizer& tok,
     // it pre-tokenizes, so no pre-tokenized piece (and no merge) ever spans an
     // <|endoftext|>; the marker is one id, and the text on each side is
     // encoded independently. Cutting right after a marker therefore gives
-    // the same ids as encoding in place. This assumes that no added token
-    // starts inside "<|endoftext|>" or contains it past its first byte; the
-    // SmolLM2 tokenizer and ours have none.
+    // the same ids as encoding in place. This fails only for an added
+    // token that (a) has "<|endoftext|>" as a proper prefix, so the whole-text
+    // longest match would run past the cut, or (b) starts before a marker and
+    // ends inside or after it. The SmolLM2 tokenizer and ours have neither,
+    // and the tests pin this.
     // parallel_for runs inline unless it has at least 2 elements per thread,
     // so the text is cut into several ranges per thread; each thread then
     // takes a contiguous block of them.

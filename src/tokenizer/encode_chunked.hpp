@@ -27,6 +27,9 @@ std::vector<std::pair<std::size_t, std::size_t>> split_at_end_of_text(
 // parallel_for, each thread taking a block of them. Without one
 // the text is encoded whole. An encode error propagates as encode throws it,
 // except that a byte offset it names is relative to the start of its range.
+// The equality fails only for an added token that has "<|endoftext|>" as a
+// proper prefix or that straddles a marker; neither SmolLM2's tokenizer nor
+// ours has one.
 std::vector<std::int32_t> encode_chunked(const Tokenizer& tok,
                                          std::string_view text);
 
