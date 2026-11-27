@@ -496,3 +496,61 @@ add_test(NAME cli_generate_model_source
 add_cli_quiet_failure(cli_generate_hf_bad_config
   "error: .*config[.]json.*rope_scaling"
   "generate;--hf-model;${CLI_FIXTURES}/bad-hf-model;--device;cpu")
+
+# titan train from token files (M6), with the small checkpoint-config.json
+# (configs/tiny-shakespeare.json has train.warmup 100, too long for 6 steps). The setup test encodes the token files
+# the others read: train.bin and val.bin (the BPE fixture corpus), short.bin
+# (one token) and train_oob.bin (a token outside the vocabulary).
+set(CLI_TOK_DIR ${CLI_OUT}/tokens)
+set(CLI_TRAINED_TOK ${CMAKE_CURRENT_SOURCE_DIR}/fixtures/bpe/trained.json)
+set(CLI_TOKEN_TRAIN_ARGS "train;--config;${CLI_FIXTURES}/checkpoint-config.json;--tokenizer;${CLI_TRAINED_TOK};--steps;6;--device;cpu")
+add_test(NAME cli_train_tokens_prepare
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    -DTOOL=$<TARGET_FILE:edit_token_file>
+    -DTOKENIZER=${CLI_TRAINED_TOK}
+    -DCORPUS=${CMAKE_CURRENT_SOURCE_DIR}/fixtures/bpe/corpus.txt
+    -DDIR=${CLI_TOK_DIR}
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_prepare_tokens.cmake)
+set_tests_properties(cli_train_tokens_prepare PROPERTIES
+  FIXTURES_SETUP cli_tokens)
+
+foreach(mode smoke resume)
+  add_test(NAME cli_train_tokens_${mode}
+    COMMAND ${CMAKE_COMMAND}
+      -DEXE=$<TARGET_FILE:titan>
+      -DMODE=${mode}
+      -DCONFIG=${CLI_FIXTURES}/checkpoint-config.json
+      -DTOKENIZER=${CLI_TRAINED_TOK}
+      -DTRAIN_TOKENS=${CLI_TOK_DIR}/train.bin
+      -DVAL_TOKENS=${CLI_TOK_DIR}/val.bin
+      -DOUT_DIR=${CLI_OUT}/tokens_${mode}
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_train_tokens.cmake)
+  set_tests_properties(cli_train_tokens_${mode} PROPERTIES
+    FIXTURES_REQUIRED cli_tokens)
+endforeach()
+
+# Bad token files fail with exit code 1 before --out is created.
+function(add_cli_tokens_failure name train_file pattern)
+  add_test(NAME ${name}
+    COMMAND ${CMAKE_COMMAND}
+      -DEXE=$<TARGET_FILE:titan>
+      "-DARGS=${CLI_TOKEN_TRAIN_ARGS};--train-tokens;${CLI_TOK_DIR}/${train_file};--val-tokens;${CLI_TOK_DIR}/val.bin;--out;${CLI_OUT}/${name}"
+      -DOUT_DIR=${CLI_OUT}/${name}
+      "-DPATTERN=${pattern}"
+      -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_train_tokens_failure.cmake)
+  set_tests_properties(${name} PROPERTIES FIXTURES_REQUIRED cli_tokens)
+endfunction()
+
+add_cli_tokens_failure(cli_train_tokens_out_of_vocab train_oob.bin
+  "train.*token [0-9]+ is 512, outside .0, 512.")
+add_cli_tokens_failure(cli_train_tokens_too_short short.bin
+  "has 1 tokens, too few for a train split")
+
+set(CLI_USAGE_TOKENS "${CLI_TOKEN_TRAIN_ARGS};--out;${CLI_OUT}/tokens_usage")
+add_cli_usage(cli_train_tokens_usage_missing_val
+  "${CLI_USAGE_TOKENS};--train-tokens;${CLI_TOK_DIR}/train.bin")
+add_cli_usage(cli_train_tokens_usage_with_data
+  "${CLI_USAGE_TOKENS};--train-tokens;${CLI_TOK_DIR}/train.bin;--val-tokens;${CLI_TOK_DIR}/val.bin;--data;${CLI_FIXTURES}/tiny_corpus.txt")
+add_cli_usage(cli_train_tokens_usage_no_tokenizer
+  "train;--config;${CLI_FIXTURES}/checkpoint-config.json;--train-tokens;${CLI_TOK_DIR}/train.bin;--val-tokens;${CLI_TOK_DIR}/val.bin;--out;${CLI_OUT}/tokens_usage;--device;cpu")
