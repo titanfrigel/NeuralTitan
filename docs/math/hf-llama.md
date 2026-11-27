@@ -181,7 +181,7 @@ Each difference is a few units in the last place of one value, and 30 layers pas
 
 Greedy decoding takes the argmax. When the reference's two best logits at a step are closer than the logit tolerance, an error within tolerance can swap them, and from that step on the two runs continue different texts. So a greedy run passes when every token matches, or when the first mismatch is at a step whose reference top-2 gap (largest minus second-largest raw FP32 logit) is strictly below `tol = 1e-3`; the comparison of that prompt stops there. A mismatch at any step with a wider gap fails.
 
-The gap is compared with the absolute `tol`, not `tol · scale`, so the rule accepts fewer divergences than the logit bound alone would justify. With the measured errors (about `1e-4` absolute) every step with a gap above `1e-3` is decided the same way on both sides; the smallest reference gaps of the fixture runs are `2.4e-3` (tiny untied, prompt 1) and `7.7e-3` (SmolLM2, prompt 3).
+The gap is compared with the absolute `tol`, not `tol · scale`, so the rule accepts fewer divergences than the logit bound alone would justify. With the measured errors (about `1e-4` absolute) every step with a gap above `1e-3` is decided the same way on both sides; the smallest reference gaps of the fixture runs are `3.0e-3` (tiny untied, prompt 0) and `7.7e-3` (SmolLM2, prompt 3).
 
 ### Measured errors
 
@@ -189,20 +189,20 @@ From `HfGolden.*` in `tests/runtime/hf_golden_test.cpp` (release build, an RTX 3
 
 | Prompt | CPU | CUDA | Greedy, CPU and CUDA |
 | --- | --- | --- | --- |
-| tiny tied, `to be or not` | 8.0e-7 | 7.0e-7 | 16 / 16 |
-| tiny tied, `the king` | 8.6e-7 | 1.6e-6 | 16 / 16 |
-| tiny tied, `ROMEO:\n` | 9.7e-7 | 1.2e-6 | 16 / 16 |
-| tiny untied, `to be or not` | 8.1e-7 | 7.1e-7 | 16 / 16 |
-| tiny untied, `the king` | 8.3e-7 | 1.5e-6 | 16 / 16 |
-| tiny untied, `ROMEO:\n` | 7.8e-7 | 1.2e-6 | 16 / 16 |
+| tiny tied, `to be or not` | 8.8e-7 | 6.5e-7 | 16 / 16 |
+| tiny tied, `the king` | 8.8e-7 | 1.4e-6 | 16 / 16 |
+| tiny tied, `ROMEO:\n` | 9.2e-7 | 1.2e-6 | 16 / 16 |
+| tiny untied, `to be or not` | 7.7e-7 | 8.1e-7 | 16 / 16 |
+| tiny untied, `the king` | 8.6e-7 | 1.7e-6 | 16 / 16 |
+| tiny untied, `ROMEO:\n` | 7.6e-7 | 1.1e-6 | 16 / 16 |
 | SmolLM2, `Once upon a time` | 2.0e-6 | 2.8e-6 | 32 / 32 |
 | SmolLM2, `The capital of France is` | 4.9e-6 | 3.0e-6 | 32 / 32 |
 | SmolLM2, `def fibonacci(n):\n` | 2.8e-6 | 3.6e-6 | 32 / 32 |
 | SmolLM2, `Café au lait, s'il vous plaît.` | 2.8e-6 | 4.7e-6 | 32 / 32 |
 
-The scales are about 6 for the tiny models and 21 to 33 for SmolLM2. The worst error, `4.9e-6`, is 200 times below the tolerance, and no greedy run needed the near-tie rule.
+The scales are 5.3 to 6.1 for the tiny models and 21 to 33 for SmolLM2. The worst error, `4.9e-6`, is 200 times below the tolerance, and no greedy run needed the near-tie rule.
 
-The tests do catch real mistakes. Swapping `input_layernorm` and `post_attention_layernorm` in the name map gives errors of 1.1 to 1.3 times the scale on SmolLM2 and a different first greedy token for every prompt. Loading `rope_theta` as 10000 instead of 100000 gives 0.02 to 0.18 times the scale on every model and greedy divergences at gaps of 0.03 to 0.8. The tiny models do not see the norm swap: their norm weights are Hugging Face's initial ones, all equal to 1, so the two norms are interchangeable there.
+The tests do catch real mistakes. Swapping `input_layernorm` and `post_attention_layernorm` in the name map gives errors of 0.54 to 0.68 times the scale on the tiny models and 1.1 to 1.3 times on SmolLM2, and greedy divergences at step 0 or 1 for every prompt. Loading `rope_theta` as 10000 instead of 100000 gives 0.09 to 0.22 times the scale on the tiny models and 0.02 to 0.13 on SmolLM2, and greedy divergences at gaps of 0.07 to 0.8. A fresh Hugging Face model has every norm weight equal to 1, which would make the norms interchangeable and hide the swap, so the fixture script sets the tiny models' norm weights to `1 + 0.1 · N(0, 1)` before saving them.
 
 ### Mapping the comparison to code
 

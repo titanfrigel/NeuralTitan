@@ -6,7 +6,8 @@ each a directory as `save_pretrained` writes it plus a tokenizer:
 
 - config.json and model.safetensors, as written by
   `LlamaForCausalLM.save_pretrained(safe_serialization=True)` from a model
-  initialized with torch.manual_seed(0) and converted to BF16 (TINY_CONFIG,
+  initialized with torch.manual_seed(0), its RMSNorm weights set to
+  1 + 0.1 * N(0, 1) (randomize_norms), and converted to BF16 (TINY_CONFIG,
   with tie_word_embeddings True or False);
 - tokenizer.json, a copy of tests/fixtures/bpe/trained.json (vocab 512,
   <|endoftext|> at id 0).
@@ -92,12 +93,32 @@ TINY_CONFIG = dict(
 )
 
 
+def randomize_norms(model) -> None:
+    """Sets every RMSNorm weight to 1 + 0.1 * N(0, 1).
+
+    A fresh model's norm weights are all 1, which would make
+    input_layernorm, post_attention_layernorm and model.norm interchangeable
+    and hide a mix-up of them in the loader. The draws come from their own
+    generator, seeded 1, in named_parameters order, so the other weights are
+    those of torch.manual_seed(0) as before.
+    """
+    gen = torch.Generator().manual_seed(1)
+    with torch.no_grad():
+        for name, param in model.named_parameters():
+            is_norm = name.endswith("layernorm.weight")
+            if is_norm or name == "model.norm.weight":
+                noise = torch.randn(param.shape, generator=gen)
+                param.copy_(1.0 + 0.1 * noise)
+
+
 def write_tiny(name: str, tied: bool) -> None:
     out = TINY_DIR / name
     out.mkdir(parents=True, exist_ok=True)
     config = transformers.LlamaConfig(**TINY_CONFIG, tie_word_embeddings=tied)
     torch.manual_seed(0)
-    model = transformers.LlamaForCausalLM(config).to(torch.bfloat16)
+    model = transformers.LlamaForCausalLM(config)
+    randomize_norms(model)
+    model = model.to(torch.bfloat16)
     model.save_pretrained(out, safe_serialization=True)
     # save_pretrained also writes generation_config.json, which only restates
     # bos_token_id and eos_token_id; the loader reads config.json alone.
