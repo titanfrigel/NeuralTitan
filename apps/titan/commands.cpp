@@ -32,12 +32,19 @@
 #include "runtime/trainer.hpp"
 #include "tokenizer/bpe_trainer.hpp"
 #include "tokenizer/char_tokenizer.hpp"
+#include "tokenizer/encode_chunked.hpp"
 #include "tokenizer/tokenizer.hpp"
 
 namespace titan::cli {
 namespace {
 
 namespace fs = std::filesystem;
+
+// The largest corpus file the commands read. io::read_file's default cap is
+// 1 GiB, below the 2.2 GB TinyStories train file; 4 GiB leaves room for it
+// while still refusing a file that cannot be held in memory twice over.
+// Config and tokenizer files keep the default cap.
+constexpr std::size_t kMaxCorpusBytes = std::size_t{1} << 32;
 
 constexpr std::int64_t kSampleTokens = 500;
 constexpr float kSampleTemperature = 0.8f;
@@ -276,7 +283,8 @@ void tokenizer_train(std::span<const std::string_view> args) {
         if (vocab < kMinBpeVocab || vocab > kMaxBpeVocab) throw UsageError{};
     }
 
-    const std::string corpus = io::read_file(flags.at("corpus"));
+    const std::string corpus =
+        io::read_file(flags.at("corpus"), kMaxCorpusBytes);
     const fs::path out = flags.at("out");
     if (type == "char") {
         const auto tok = tokenizer::CharTokenizer::build(corpus);
@@ -298,19 +306,27 @@ void tokenizer_train(std::span<const std::string_view> args) {
 }
 
 void tokenizer_encode(std::span<const std::string_view> args) {
-    const Flags flags = parse_flags(args, {"tokenizer", "text", "file"},
+    const Flags flags = parse_flags(args, {"tokenizer", "text", "file", "out"},
                                     {"tokenizer"}, {"summary"});
     // Exactly one source of text.
     if (flags.contains("text") == flags.contains("file")) throw UsageError{};
 
     const std::unique_ptr<tokenizer::Tokenizer> tok =
         read_tokenizer(flags.at("tokenizer"));
-    const std::string text = flags.contains("text")
-                                 ? flags.at("text")
-                                 : io::read_file(flags.at("file"));
-    const std::vector<std::int32_t> ids = tok->encode(text);
+    const std::string text =
+        flags.contains("text")
+            ? flags.at("text")
+            : io::read_file(flags.at("file"), kMaxCorpusBytes);
+    const std::vector<std::int32_t> ids = tokenizer::encode_chunked(*tok, text);
 
-    if (!flags.contains("summary")) {
+    // With --out the ids go to a token file and only the summary is printed.
+    const bool to_file = flags.contains("out");
+    if (to_file) {
+        const fs::path out = flags.at("out");
+        make_parent_dir(out);
+        io::write_token_file(out, ids);
+    }
+    if (!to_file && !flags.contains("summary")) {
         for (std::size_t i = 0; i < ids.size(); ++i) {
             if (i > 0) std::cout << ' ';
             std::cout << ids[i];
@@ -390,7 +406,7 @@ void train_new(const Flags& flags, Device device,
     const fs::path out = flags.at("out");
     const io::JsonValue config =
         io::parse_json(io::read_file(flags.at("config")));
-    const std::string corpus = io::read_file(flags.at("data"));
+    const std::string corpus = io::read_file(flags.at("data"), kMaxCorpusBytes);
 
     // Everything that can fail on bad input runs before anything is written
     // or any training starts: config sections, --stop-at, tokenizer, corpus

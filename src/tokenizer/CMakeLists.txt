@@ -3,6 +3,7 @@ add_library(titan_tokenizer STATIC
   bpe_trainer.cpp
   byte_level.cpp
   char_tokenizer.cpp
+  encode_chunked.cpp
   pretokenizer.cpp
   tokenizer.cpp
   unicode_tables.cpp)

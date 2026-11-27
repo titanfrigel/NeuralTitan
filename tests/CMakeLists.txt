@@ -64,6 +64,7 @@ target_sources(titan_tests PRIVATE
   tokenizer/bpe_trainer_test.cpp
   tokenizer/smollm2_test.cpp
   tokenizer/tokenizer_test.cpp
+  tokenizer/encode_chunked_test.cpp
   model/config_test.cpp
   model/model_test.cpp
   model/model_cuda_test.cpp
@@ -409,6 +410,18 @@ add_cli_output(cli_tokenizer_encode_smollm2 "^81 1 82[^0-9 ]*$"
 add_cli_output(cli_tokenizer_encode_summary
   "^tokens 3[^a-z]+crc32 0x71a517bb[^a-z]+bytes_per_token 4[.]667[^0-9]*$"
   "tokenizer;encode;--tokenizer;${CMAKE_CURRENT_SOURCE_DIR}/fixtures/smollm2/tokenizer.json;--text;a<|im_start|>b;--summary")
+
+# --out writes the ids to a token file (in a directory that does not exist
+# yet) and prints the summary the same --summary prints.
+add_test(NAME cli_tokenizer_encode_out
+  COMMAND ${CMAKE_COMMAND}
+    -DEXE=$<TARGET_FILE:titan>
+    -DTOKENIZER=${CMAKE_CURRENT_SOURCE_DIR}/fixtures/bpe/trained.json
+    -DCORPUS=${CMAKE_CURRENT_SOURCE_DIR}/fixtures/bpe/corpus.txt
+    -DOUT=${CLI_OUT}/encode_out/new_dir/corpus.bin
+    -P ${CMAKE_CURRENT_SOURCE_DIR}/harness/expect_encode_out.cmake)
+add_cli_output(cli_tokenizer_encode_out_text "^tokens 1[^a-z]+crc32 0x[0-9a-f]+[^a-z]+bytes_per_token 2[.]000[^0-9]*$"
+  "tokenizer;encode;--tokenizer;${CMAKE_CURRENT_SOURCE_DIR}/fixtures/smollm2/tokenizer.json;--text;hi;--out;${CLI_OUT}/encode_out/text.bin")
 
 set(CLI_ENCODE_ARGS "tokenizer;encode;--tokenizer;${CLI_FIXTURES}/bad-tokenizer.json")
 add_cli_usage(cli_usage_encode_text_and_file

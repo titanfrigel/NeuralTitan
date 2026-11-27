@@ -188,6 +188,16 @@ A vocabulary need not hold all 256 single-byte symbols. SmolLM2's lacks 21 of th
 
 The byte is dropped when the piece is turned into symbols, before any merge. Its neighbours in the same piece therefore become adjacent and may merge: `"!\x04!"` gives the single token `!!`, exactly as with SmolLM2. Most such bytes are control characters, which the pre-tokenizer puts in a piece of their own. So `"he\x04llo"` is cut into the pieces `he`, `\x04` and `llo`, and gives `he`, `llo` rather than `hello`. A piece made only of such bytes yields no ids. Our own trainer always keeps all 256 symbols, so this case only arises with imported vocabularies.
 
+## Encoding a corpus in chunks
+
+`encode_chunked(tok, text)` in `src/tokenizer/encode_chunked.{hpp,cpp}` returns exactly the ids of `tok.encode(text)` but uses every core, which a corpus of gigabytes needs (`titan tokenizer encode --out`).
+
+**Why cutting at an added token preserves the ids.** Step 1 of encode matches added tokens before anything else, and everything after it (pre-tokenization, merging) works on one span of ordinary text between two matches. So no piece and no merge ever spans an `<|endoftext|>`: the marker is its own id, and the text on either side is encoded independently of the other side. Cut the text right after each marker and encode the chunks apart; concatenating their ids gives the ids of the whole. The cut goes after the marker, so each chunk ends in the marker's id, and a chunk's first byte starts a fresh span, as it does in the whole text.
+
+**Thread grouping.** A tokenizer without an end-of-text token (the character tokenizer) is encoded whole. Otherwise the chunks are grouped, in order, into one range per thread (`num_threads()`) of roughly `size / threads` bytes: a range grows chunk by chunk until it has reached that size, so a chunk longer than the target makes a longer range and there may be fewer ranges than threads. Each range is encoded by `tok.encode` inside `parallel_for` into its own vector, and the vectors are concatenated in order. The result does not depend on the thread count. A story-sized chunk keeps the pre-tokenizer's per-call arrays (a code point and an offset per character) small, where encoding a whole 2 GB corpus in one call would not fit in memory.
+
+**The assumption.** No added token starts inside `<|endoftext|>` or contains it past its first byte; otherwise the whole-text match could straddle a cut. SmolLM2's tokenizer and ours have no such token. An encode error from a worker thread is rethrown to the caller; a byte offset it names is relative to the start of its range, not of the text.
+
 ## Training
 
 Training learns the merge list from a corpus. It is the encoder run in reverse: each step finds the most frequent adjacent pair and turns it into a new token, until the vocabulary is full.
