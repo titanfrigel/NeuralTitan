@@ -215,7 +215,9 @@ def reference_run(model, ids: list[int], new_tokens: int):
 
 def load_reference(path: pathlib.Path):
     model = transformers.AutoModelForCausalLM.from_pretrained(
-        path, dtype=torch.float32, attn_implementation="eager")
+        path, dtype=torch.float32, attn_implementation="eager",
+        # Threat T5: load model.safetensors only, never a pickle .bin.
+        use_safetensors=True)
     return model.eval()
 
 
