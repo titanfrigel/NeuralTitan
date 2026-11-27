@@ -57,6 +57,7 @@ scripts/check.ps1
 | `titan train --config <cfg.json> --data <corpus.txt> --out <dir>` | Trains a model, on the GPU when one is available; see [Training a model](#training-a-model). |
 | `titan train --resume <dir>` | Continues the run saved in `<dir>/latest.ckpt`, bit-identical to an uninterrupted run; see [Training a model](#training-a-model). |
 | `titan generate --checkpoint <file> [--prompt <text>]` | Streams text sampled from a trained checkpoint with the KV cache; see [Generating text](#generating-text). |
+| `titan generate --hf-model <dir> [--prompt <text>]` | Streams text sampled from a Hugging Face Llama model directory, such as SmolLM2-135M; see [Generating text](#generating-text). |
 | `titan bench matmul [--sizes 256,512,1024,2048,4096] [--repeat 10]` | Times square GEMMs with the cuBLAS, naive and tiled CUDA backends and prints each against the GPU's peak FP32 throughput; see the [matmul note](docs/math/matmul.md#measured-throughput). |
 
 ## Training a model
@@ -82,6 +83,14 @@ The TinyShakespeare corpus is not in the repository: download `input.txt` from [
 ```
 
 Options: `--prompt <text>` (default a newline; with a character tokenizer every character must be in the checkpoint's vocabulary), `--max-new N` (500), `--temp T` (0.8; 0 is greedy and ignores top-k and top-p), `--top-k K` (0, off), `--top-p P` (0.9; in (0, 1]), `--seed S` (the checkpoint's `train.seed`), `--device cpu|cuda` (cuda when a GPU is available) and `--no-cache` (recompute the whole window for every token instead of using the KV cache, for comparison). The prompt is echoed, each new token is printed as soon as it is sampled, and `tokens/s` goes to stderr. A BPE token can hold part of a UTF-8 character, so its bytes are held back until a later token completes the character; only such an incomplete tail is held back, and ill-formed bytes the model samples are printed as they are. Non-ASCII arguments reach `titan` as UTF-8 on Windows 10 version 1903 and later (the program's manifest sets the UTF-8 code page), but a legacy console shows non-ASCII output garbled unless you run `chcp 65001` first or use a UTF-8 terminal such as Windows Terminal. With a BPE tokenizer, generation stops early when the model samples the end-of-text token `<|endoftext|>`, which is not printed. Bad flags exit with code 2 before any file is read; a missing or damaged checkpoint or an unknown prompt character exits with code 1 and prints nothing to stdout. The sampling math is in the [sampling note](docs/math/sampling.md) and the cache in the [KV cache note](docs/math/kv-cache.md).
+
+`titan generate --hf-model <dir>` runs a Hugging Face `LlamaForCausalLM` directory instead of a checkpoint: `config.json`, `tokenizer.json` and `model.safetensors` (F32, F16 or BF16 weights, converted to FP32), as in SmolLM2-135M:
+
+```powershell
+./build/release/apps/titan.exe generate --hf-model models/SmolLM2-135M --prompt "Once upon a time" --temp 0 --max-new 64
+```
+
+It takes the same options as `--checkpoint`, except that `--seed` defaults to 0, since such a model has no training seed; exactly one of `--checkpoint` and `--hf-model` is allowed. The files are read in full and validated, `config.json` first, before anything is printed, so an unsupported or damaged file exits with code 1, prints nothing to stdout and names the file and the field or tensor. Generation stops at the model's end-of-text token. Supported configs and the mapping onto our model are in the [Hugging Face Llama note](docs/math/hf-llama.md). The weights are not in the repository: download SmolLM2-135M at the revision pinned in `tools/make_llama_fixtures.py` to `models/SmolLM2-135M/` (git-ignored), or let that script download it.
 
 ## M1 result
 
@@ -187,6 +196,38 @@ Training the 4096-token vocabulary learns 3,839 merges (4096 minus `<|endoftext|
 | SmolLM2-135M | 49,152 | 341,094 | 3.270 | 350 ms |
 
 Encode time is the wall-clock time of the whole `titan tokenizer encode --summary` process, including loading the tokenizer file, as measured by PowerShell's `Measure-Command`, median of three runs. SmolLM2's 341,094 tokens and CRC-32 `0xc11ec8a4` equal the reference ids in `tests/fixtures/smollm2/corpus.json`, so our encoder reproduces Hugging Face's on the whole corpus. Our vocabulary is 12 times smaller yet only 0.9% less compact on this text, because it was trained on it; SmolLM2's vocabulary covers a broad web corpus, code and other languages. The tokenizer is explained in the [BPE note](docs/math/bpe.md).
+
+## M5 result
+
+SmolLM2-135M (revision `93efa2f097d58c2a74874c7e644dbc9b0cee75a2`) loaded from its Hugging Face files, compared with Hugging Face transformers 5.23.0 in FP32 on the CPU (`tools/make_llama_fixtures.py`), release build, on a laptop with an Intel Core i7-11800H (16 threads) and an NVIDIA GeForce RTX 3070 Laptop GPU.
+
+Logits (`HfGolden.SmolLM2Logits*`, every position of each prompt over 1024 sampled vocabulary ids, and the full last position): `max |Δ|` divided by the logit scale `max(1, max |reference logit|)`, against the tolerance 1e-3.
+
+| Prompt | CPU | CUDA |
+| --- | --- | --- |
+| `Once upon a time` | 2.03e-6 | 2.84e-6 |
+| `The capital of France is` | 4.89e-6 | 3.05e-6 |
+| `def fibonacci(n):` and a newline | 2.84e-6 | 3.63e-6 |
+| `Café au lait, s'il vous plaît.` and a space | 2.82e-6 | 4.70e-6 |
+
+The worst error is 4.89e-6 on the CPU and 4.70e-6 on CUDA, about 200 times inside the tolerance. Greedy generation (`HfGolden.SmolLM2Greedy*`) matches Hugging Face's first 32 tokens on all four prompts on both devices, with no divergence and so no near-tie needed. The two tiny random Llama fixtures (tied and untied embeddings) match too: worst 9.19e-7 on the CPU and 1.71e-6 on CUDA, and 16 of 16 greedy tokens on every prompt.
+
+The greedy continuation of `Once upon a time`, 64 tokens, identical on the CPU and CUDA:
+
+```powershell
+./build/release/apps/titan.exe generate --hf-model models/SmolLM2-135M --prompt "Once upon a time" --temp 0 --max-new 64 --device cuda
+```
+
+> Once upon a time, there was a little girl named Lily. She lived in a big house with her family, but she didn't have many toys to play with. One day, her mom told her that she could go to a special place called a "school" to learn new things and become a teacher. Lily was excited to go
+
+Its first 32 tokens are Hugging Face's reference continuation.
+
+| Device | tokens/s (three runs) | Median |
+| --- | --- | --- |
+| CPU (`--device cpu`) | 6.6, 6.7, 6.7 | 6.7 |
+| CUDA (`--device cuda`) | 82.6, 86.1, 85.5 | 85.5 |
+
+tokens/s is what `titan generate` prints: the 64 generated tokens over the generation time, with the KV cache, excluding loading. Known limitation: the CPU speed is held back by `parallel_for`, which creates its threads on every call, and decoding one token makes about 271 matmul calls (211 in the linear layers and 60 in attention). This is inferred from measurements, not profiled; a thread pool is left for later. The loading and the parity method are explained in the [Hugging Face Llama note](docs/math/hf-llama.md).
 
 ## Documentation
 

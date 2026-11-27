@@ -44,6 +44,7 @@ JsonFields::JsonFields(const JsonValue& value, std::string context,
 }
 
 std::string JsonFields::path_of(std::string_view key) const {
+    if (path_.empty()) return std::string(key);
     return path_ + "." + std::string(key);
 }
 
