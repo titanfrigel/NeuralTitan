@@ -1,6 +1,6 @@
 # Hugging Face Llama weights
 
-How NeuralTitan reads a Hugging Face Llama checkpoint such as SmolLM2-135M. This note grows with milestone M5: the conversion of the stored 16-bit floats to FP32, then the mapping of a Hugging Face Llama onto our model.
+How NeuralTitan reads a Hugging Face Llama checkpoint such as SmolLM2-135M. It covers the conversion of the stored 16-bit floats to FP32, the mapping of a Hugging Face Llama onto our model (its config, its tensors and the load order), and the [Tolerance](#tolerance) the parity tests hold our logits to.
 
 ## What it computes
 

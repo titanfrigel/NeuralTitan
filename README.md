@@ -227,7 +227,7 @@ Its first 32 tokens are Hugging Face's reference continuation.
 | CPU (`--device cpu`) | 6.6, 6.7, 6.7 | 6.7 |
 | CUDA (`--device cuda`) | 82.6, 86.1, 85.5 | 85.5 |
 
-tokens/s is what `titan generate` prints: the 64 generated tokens over the generation time, with the KV cache, excluding loading. Known limitation: the CPU speed is held back by `parallel_for`, which creates its threads on every call, and decoding one token makes about 211 matmul calls. This is inferred from measurements, not profiled; a thread pool is left for later. The loading and the parity method are explained in the [Hugging Face Llama note](docs/math/hf-llama.md).
+tokens/s is what `titan generate` prints: the 64 generated tokens over the generation time, with the KV cache, excluding loading. Known limitation: the CPU speed is held back by `parallel_for`, which creates its threads on every call, and decoding one token makes about 271 matmul calls (211 in the linear layers and 60 in attention). This is inferred from measurements, not profiled; a thread pool is left for later. The loading and the parity method are explained in the [Hugging Face Llama note](docs/math/hf-llama.md).
 
 ## Documentation
 

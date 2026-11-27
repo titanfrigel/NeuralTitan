@@ -49,9 +49,9 @@ Tile width: with `R = B·M` output rows and `T` threads, the kernel wants `4T` i
 
 Accumulation order: `K` is split into blocks of 64. Within a block, terms are added in float in ascending `k`, starting from zero. Each block sum is then added to a per-element `double` total, blocks in ascending order, and the final total is rounded to float and added to `out`. This is a function of the shapes only.
 
-Threading: `parallel_for` splits the items into contiguous chunks, one per thread. An item is computed completely by one thread, from read-only inputs, into its own slice of `out`, with its own scratch buffers. No two threads touch the same output element and no sums are combined across threads, and every element follows the accumulation order above whatever its tile or path (packed, in place), so the result is bit-identical for any thread count and to `cpu::matmul_acc_reference`, a serial loop per element with the same order, which `MatmulCpu.TiledMatchesReference` compares bit for bit.
+Threading: `parallel_for` splits the items into contiguous chunks, one per thread. An item is computed completely by one thread, from read-only inputs, into its own slice of `out`, with its own scratch buffers. No two threads touch the same output element and no sums are combined across threads, and every element follows the accumulation order above whatever its tile or path (packed, in place), so the result is bit-identical for any thread count and to `cpu::matmul_acc_reference`, the bit-exact reference, a serial loop per element with the same order, which `MatmulCpu.TiledMatchesReference` compares bit for bit.
 
-`cpu::matmul_naive` is the reference: a plain triple loop with a single `double` accumulator per element. The fast kernel agrees with it up to float rounding; the tests require 1e-4 relative.
+`cpu::matmul_naive` is the rounding reference: a plain triple loop with a single `double` accumulator per element. The fast kernel agrees with it up to float rounding; the tests require 1e-4 relative.
 
 ## Mapping to code
 
