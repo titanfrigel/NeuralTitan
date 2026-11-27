@@ -43,18 +43,20 @@ So `dA = dC·Bᵀ` (`transpose_b = true`) and `dB = Aᵀ·dC` (`transpose_a = tr
 
 ## Threading, determinism and accumulation
 
-Loop order (`cpu::matmul_acc`): for each output row `(t, i)` (batch index and row of `op(a)`) the kernel runs `k` in the middle and `j` innermost, the i-k-j order. The innermost loop adds `op(a)[i][k] · op(b)[k][·]`, a whole row of `op(b)`, to a row of partial sums, so it reads and writes contiguous memory and the compiler can vectorize it. If `b` is transposed, `op(b)` is first packed into a contiguous `(K, N)` copy, so the inner loop is the same for all four cases. `op(a)` is read through index arithmetic, one scalar per `(i, k)`.
+Loop order (`cpu::matmul_acc`): the work is split into items, each one output row `(t, i)` (batch index and row of `op(a)`) restricted to one tile of columns `[j0, j0 + w)`. Within an item the kernel runs `k` in the middle and `j` innermost, the i-k-j order. The innermost loop adds `op(a)[i][k] · op(b)[k][j0…j0+w)`, a piece of a row of `op(b)`, to a row of partial sums, so it reads and writes contiguous memory and the compiler can vectorize it. If `b` is transposed and `M ≥ 4`, `op(b)` is first packed into a contiguous `(K, N)` copy, the packing split over the threads by column, so the inner loop is the same for all four cases. With `M < 4` (decoding has `M = 1`) packing would cost as much as the products themselves, so a transposed `b` is read in place: row `j` of `b` is column `j` of `op(b)` and is contiguous in `k`, and each element is a dot product along it. `op(a)` is read through index arithmetic, one scalar per `(i, k)`.
+
+Tile width: with `R = B·M` output rows and `T` threads, the kernel wants `4T` items, so each row gets `⌈4T / R⌉` tiles, at most `⌈N / 16⌉` (a tile keeps at least 16 columns so that the inner loop still vectorizes), and the tile width is `w = ⌈N / tiles⌉`. With many rows a row is one tile, which is the row-parallel kernel of earlier milestones; with `M = 1` the columns are what is split, so decoding uses every thread instead of one.
 
 Accumulation order: `K` is split into blocks of 64. Within a block, terms are added in float in ascending `k`, starting from zero. Each block sum is then added to a per-element `double` total, blocks in ascending order, and the final total is rounded to float and added to `out`. This is a function of the shapes only.
 
-Threading: `parallel_for` splits the `B·M` output rows into contiguous chunks, one per thread. A row is computed completely by one thread, from read-only inputs, into its own slice of `out`, with its own scratch buffers. No two threads touch the same output element and no sums are combined across threads, so the result is bit-identical for any thread count.
+Threading: `parallel_for` splits the items into contiguous chunks, one per thread. An item is computed completely by one thread, from read-only inputs, into its own slice of `out`, with its own scratch buffers. No two threads touch the same output element and no sums are combined across threads, and every element follows the accumulation order above whatever its tile or path (packed, in place), so the result is bit-identical for any thread count and to `cpu::matmul_acc_reference`, a serial loop per element with the same order, which `MatmulCpu.TiledMatchesReference` compares bit for bit.
 
 `cpu::matmul_naive` is the reference: a plain triple loop with a single `double` accumulator per element. The fast kernel agrees with it up to float rounding; the tests require 1e-4 relative.
 
 ## Mapping to code
 
 - Public interface and precondition checks: `src/ops/matmul.hpp`, `src/ops/matmul.cpp`. The dispatch routes by the tensors' device to the CPU or the CUDA implementation; on CUDA it passes the selected `GemmBackend` along. `ops::matmul` creates a zeroed `out` on the operands' device and calls the accumulating kernel, on both devices.
-- CPU fast kernel and reference: `src/ops/cpu/matmul.cpp` (`matmul_acc`, `matmul_naive`).
+- CPU fast kernel and references: `src/ops/cpu/matmul.cpp` (`matmul_acc`, `matmul_acc_reference`, `matmul_naive`).
 - CUDA kernels: `src/ops/cuda/matmul.cu` (`matmul_acc`, `matmul_naive`, `matmul_tiled` and the cuBLAS call), declared in `src/ops/cuda/matmul.hpp`. The cuBLAS handle and `TITAN_CUBLAS_CHECK`: `src/ops/cuda/cublas_handle.cuh` and `src/ops/cuda/cublas_handle.cu`.
 - Tests: `tests/ops/matmul_test.cpp` covers values, all four transpose cases, batching, the naive reference on awkward shapes, thread-count determinism, accumulation, error messages and the gradients above through `tests/support/gradcheck.hpp`. `tests/ops/cuda/matmul_parity_test.cpp` compares each GEMM backend with the CPU and cuBLAS with the tiled kernel, and checks the backend switch.
 

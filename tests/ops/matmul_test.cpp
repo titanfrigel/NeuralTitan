@@ -2,6 +2,7 @@
 #include <cmath>
 #include <cstddef>
 #include <cstdint>
+#include <cstring>
 #include <string>
 #include <vector>
 
@@ -201,4 +202,57 @@ TITAN_TEST(Matmul, GradCheck) {
         check_gradient([&] { return ops::matmul(a, b); }, a, da, r));
     TITAN_EXPECT_GRAD_OK(
         check_gradient([&] { return ops::matmul(a, b); }, b, db, r));
+}
+
+// The parallel kernel against the serial reference with the same
+// accumulation order, bit for bit, for every transpose combination: M = 1
+// (decode), N not a multiple of a column tile, K not a multiple of the 64-term
+// block, batches, and an M large enough to take the packed path.
+TITAN_TEST(MatmulCpu, TiledMatchesReference) {
+    const ThreadGuard guard;
+    struct Case {
+        std::int64_t batch, m, k, n;
+    };
+    const std::vector<Case> cases = {
+        {1, 1, 576, 192}, {1, 1, 130, 77}, {1, 1, 64, 1},     {1, 1, 7, 300},
+        {3, 1, 65, 33},   {2, 3, 129, 50}, {1, 17, 200, 129}, {2, 40, 70, 19},
+    };
+    Rng rng(11);
+    for (const int threads : {1, 4, 16}) {
+        titan::set_num_threads(threads);
+        for (const Case& c : cases) {
+            for (const bool ta : {false, true}) {
+                for (const bool tb : {false, true}) {
+                    const Tensor a =
+                        random_tensor(ta ? Shape{c.batch, c.k, c.m}
+                                         : Shape{c.batch, c.m, c.k},
+                                      rng);
+                    const Tensor b =
+                        random_tensor(tb ? Shape{c.batch, c.n, c.k}
+                                         : Shape{c.batch, c.k, c.n},
+                                      rng);
+                    const Tensor init = random_tensor({c.batch, c.m, c.n}, rng);
+                    Tensor fast = init.clone();
+                    Tensor ref = init.clone();
+                    ops::cpu::matmul_acc(fast, a, b, ta, tb);
+                    ops::cpu::matmul_acc_reference(ref, a, b, ta, tb);
+                    const bool same =
+                        std::memcmp(fast.data(), ref.data(),
+                                    sizeof(float) * static_cast<std::size_t>(
+                                                        ref.numel())) == 0;
+                    if (!same) {
+                        titan::test::report_failure(
+                            __FILE__, __LINE__,
+                            "differs at threads " + std::to_string(threads) +
+                                ", batch " + std::to_string(c.batch) + ", m " +
+                                std::to_string(c.m) + ", k " +
+                                std::to_string(c.k) + ", n " +
+                                std::to_string(c.n) + ", ta " +
+                                std::to_string(ta) + ", tb " +
+                                std::to_string(tb));
+                    }
+                }
+            }
+        }
+    }
 }
