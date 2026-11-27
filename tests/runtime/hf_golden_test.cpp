@@ -235,13 +235,21 @@ const char* device_name(Device device) {
 // text, so the parity tests feed the model the reference's input. SmolLM2's
 // tokenizer is the committed copy, so this runs without the weights.
 
+// `fixture` names the prompt list in failure messages, e.g. "tiny_llama
+// tied".
 void expect_prompt_ids(const std::filesystem::path& tokenizer_path,
-                       const JsonValue& prompts) {
+                       const JsonValue& prompts, const std::string& fixture) {
     const auto tok = titan::tokenizer::load_tokenizer(
         titan::io::parse_json(titan::io::read_file(tokenizer_path)));
-    for (const JsonValue& prompt : prompts.as_array()) {
-        TITAN_EXPECT(tok->encode(prompt.at("text").as_string()) ==
-                     int_list(prompt.at("ids")));
+    const auto& list = prompts.as_array();
+    for (std::size_t i = 0; i < list.size(); ++i) {
+        const std::string& text = list[i].at("text").as_string();
+        if (tok->encode(text) != int_list(list[i].at("ids"))) {
+            titan::test::report_failure(
+                __FILE__, __LINE__,
+                fixture + " prompt " + std::to_string(i) + " '" + text +
+                    "': our ids differ from the fixture's");
+        }
     }
 }
 
@@ -250,12 +258,13 @@ TITAN_TEST(HfGolden, PromptIdsMatchTokenizer) {
     tolerance_of(tiny);
     for (const char* name : {"tied", "untied"}) {
         expect_prompt_ids(kFixtures / "tiny_llama" / name / "tokenizer.json",
-                          tiny.json.at(name));
+                          tiny.json.at(name),
+                          std::string("tiny_llama ") + name);
     }
     const GoldenFiles smollm2 = load_golden(kFixtures / "smollm2");
     tolerance_of(smollm2);
     expect_prompt_ids(kFixtures / "smollm2" / "tokenizer.json",
-                      smollm2.json.at("prompts"));
+                      smollm2.json.at("prompts"), "smollm2");
 }
 
 // ---------------------------------------------------------------------------

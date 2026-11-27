@@ -207,15 +207,27 @@ TITAN_TEST(Matmul, GradCheck) {
 // The parallel kernel against the serial reference with the same
 // accumulation order, bit for bit, for every transpose combination: M = 1
 // (decode), N not a multiple of a column tile, K not a multiple of the 64-term
-// block, batches, and an M large enough to take the packed path.
+// block, batches, M on both sides of the switch from reading a transposed b
+// in place to packing it, and an M large enough to take the packed path.
 TITAN_TEST(MatmulCpu, TiledMatchesReference) {
     const ThreadGuard guard;
     struct Case {
         std::int64_t batch, m, k, n;
     };
     const std::vector<Case> cases = {
-        {1, 1, 576, 192}, {1, 1, 130, 77}, {1, 1, 64, 1},     {1, 1, 7, 300},
-        {3, 1, 65, 33},   {2, 3, 129, 50}, {1, 17, 200, 129}, {2, 40, 70, 19},
+        {1, 1, 576, 192},
+        {1, 1, 130, 77},
+        {1, 1, 64, 1},
+        {1, 1, 7, 300},
+        {3, 1, 65, 33},
+        {2, 3, 129, 50},
+        {1, 17, 200, 129},
+        {2, 40, 70, 19},
+        // M = 3 and M = 4 = kPackMinRows: with transpose_b, the last shapes
+        // that read b in place and the first that pack it.
+        {1, 3, 200, 129},
+        {1, 4, 200, 129},
+        {2, 4, 129, 50},
     };
     Rng rng(11);
     for (const int threads : {1, 4, 16}) {
