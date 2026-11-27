@@ -93,4 +93,58 @@ bool is_valid_utf8(std::string_view text) {
     return true;
 }
 
+std::size_t utf8_complete_prefix(std::string_view bytes) {
+    const std::size_t n = bytes.size();
+    // The lead byte of an incomplete sequence is one of the last 3 bytes, and
+    // only continuation bytes follow it.
+    for (std::size_t back = 1; back <= 3 && back <= n; ++back) {
+        const std::size_t start = n - back;
+        const auto b0 = static_cast<unsigned char>(bytes[start]);
+        if ((b0 & 0xC0) == 0x80) continue;  // continuation: look further back
+        // The sequence length the lead byte announces. C0, C1 (always
+        // overlong) and F5..FF (above U+10FFFF or never valid) start no valid
+        // sequence, the same rules decode_utf8_at applies.
+        std::size_t len = 0;
+        if (b0 >= 0xC2 && b0 <= 0xDF) {
+            len = 2;
+        } else if (b0 >= 0xE0 && b0 <= 0xEF) {
+            len = 3;
+        } else if (b0 >= 0xF0 && b0 <= 0xF4) {
+            len = 4;
+        } else {
+            return n;  // ASCII or an invalid lead
+        }
+        if (back >= len) return n;  // the sequence is not cut short
+        if (back >= 2) {
+            // The second byte's range for a valid sequence (Unicode table
+            // 3-7): E0 needs A0..BF (else overlong), ED 80..9F (else a
+            // surrogate), F0 90..BF (else overlong), F4 80..8F (else above
+            // U+10FFFF); the rest 80..BF, which the loop already ensured.
+            const auto b1 = static_cast<unsigned char>(bytes[start + 1]);
+            const bool valid = (b0 == 0xE0)   ? b1 >= 0xA0
+                               : (b0 == 0xED) ? b1 <= 0x9F
+                               : (b0 == 0xF0) ? b1 >= 0x90
+                               : (b0 == 0xF4) ? b1 <= 0x8F
+                                              : true;
+            if (!valid) return n;
+        }
+        return start;
+    }
+    return n;  // only continuation bytes at the end: invalid, so complete
+}
+
+std::string Utf8Stream::push(std::string_view bytes) {
+    pending_ += bytes;
+    const std::size_t n = utf8_complete_prefix(pending_);
+    std::string complete = pending_.substr(0, n);
+    pending_.erase(0, n);
+    return complete;
+}
+
+std::string Utf8Stream::finish() {
+    std::string rest;
+    rest.swap(pending_);
+    return rest;
+}
+
 }  // namespace titan

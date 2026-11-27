@@ -125,7 +125,8 @@ std::vector<std::int32_t> generate_naive(model::Model& model,
 std::vector<std::int32_t> generate_naive(
     model::Model& model, std::vector<std::int32_t> prompt, std::int64_t n_new,
     const SamplerConfig& config, Rng& rng,
-    const std::function<void(std::int32_t)>& on_token) {
+    const std::function<void(std::int32_t)>& on_token,
+    std::optional<std::int32_t> stop_id) {
     validate(config);
     TITAN_CHECK(!prompt.empty(), "generate_naive: empty prompt");
     TITAN_CHECK(n_new >= 0, "generate_naive: n_new must be >= 0, got " +
@@ -144,8 +145,10 @@ std::vector<std::int32_t> generate_naive(
         const std::vector<float> all = logits.to_vector();
         const std::span<const float> last(all.data() + (t - 1) * vocab,
                                           static_cast<std::size_t>(vocab));
-        tokens.push_back(sample(last, config, rng));
-        if (on_token) on_token(tokens.back());
+        const std::int32_t next = sample(last, config, rng);
+        if (next == stop_id) break;
+        tokens.push_back(next);
+        if (on_token) on_token(next);
     }
     return tokens;
 }

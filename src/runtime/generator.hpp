@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -34,9 +35,14 @@ public:
     // negative n_new. Draws exactly one rng.uniform() per new token unless the
     // temperature is 0, in the same order as generate_naive, so before the
     // first slide both give the same tokens for the same seed.
+    //
+    // With a stop_id, generation ends as soon as that token is sampled: the
+    // stop token is neither appended to the result nor passed to on_token, so
+    // the result may hold fewer than n_new new tokens.
     std::vector<std::int32_t> generate(
         std::vector<std::int32_t> prompt, std::int64_t n_new,
-        const std::function<void(std::int32_t)>& on_token = {});
+        const std::function<void(std::int32_t)>& on_token = {},
+        std::optional<std::int32_t> stop_id = {});
 
     // The cache, for inspection: its length is the number of positions the
     // next decode step attends over.

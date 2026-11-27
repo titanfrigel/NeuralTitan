@@ -2,7 +2,7 @@
 
 #include <cstddef>
 #include <limits>
-#include <optional>
+#include <memory>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -316,12 +316,12 @@ Checkpoint load_checkpoint(const std::filesystem::path& path,
     return c;
 }
 
-tokenizer::CharTokenizer checkpoint_tokenizer(const std::filesystem::path& path,
-                                              const Checkpoint& ckpt) {
+std::unique_ptr<tokenizer::Tokenizer> checkpoint_tokenizer(
+    const std::filesystem::path& path, const Checkpoint& ckpt) {
     const std::string context = file_context(path);
-    std::optional<tokenizer::CharTokenizer> tok;
+    std::unique_ptr<tokenizer::Tokenizer> tok;
     try {
-        tok = tokenizer::CharTokenizer::from_json(ckpt.tokenizer);
+        tok = tokenizer::load_tokenizer(ckpt.tokenizer);
     } catch (const Error& e) {
         throw_error(__FILE__, __LINE__,
                     context + ": meta.tokenizer: " + e.what());
@@ -331,7 +331,7 @@ tokenizer::CharTokenizer checkpoint_tokenizer(const std::filesystem::path& path,
                     std::to_string(tok->vocab_size()) +
                     " tokens but meta.vocab_size is " +
                     std::to_string(ckpt.model.vocab_size));
-    return *std::move(tok);
+    return tok;
 }
 
 }  // namespace titan::runtime

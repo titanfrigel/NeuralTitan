@@ -204,3 +204,41 @@ TITAN_TEST(Generator, RejectsEmptyPrompt) {
     TITAN_EXPECT_THROWS(Generator(m, SamplerConfig{1.0f, 0, 0.0f}, 1),
                         titan::Error);
 }
+
+// A stop id ends generation at its first sample: the stop token is neither
+// returned nor streamed. Without a stop id the run is unchanged.
+TITAN_TEST(Generator, StopsAtStopId) {
+    Model m(config_with_context(64));
+    init_model(m, 74);
+    const SamplerConfig config{0.9f, 0, 1.0f};
+    const std::size_t p = kPrompt.size();
+    Generator free_gen(m, config, 11);
+    const std::vector<std::int32_t> free_run = free_gen.generate(kPrompt, 10);
+    TITAN_EXPECT_EQ(free_run.size(), p + 10);
+    // The third new token must not appear among the first two, so the run
+    // with it as the stop id stops exactly there. This seed and model are
+    // chosen so that it holds; a change that breaks it fails here.
+    const std::int32_t stop = free_run[p + 2];
+    TITAN_EXPECT(free_run[p] != stop && free_run[p + 1] != stop);
+    if (free_run[p] == stop || free_run[p + 1] == stop) return;
+    const std::vector<std::int32_t> want(free_run.begin(),
+                                         free_run.begin() + p + 2);
+
+    Generator gen(m, config, 11);
+    std::vector<std::int32_t> streamed;
+    const std::vector<std::int32_t> got = gen.generate(
+        kPrompt, 10, [&](std::int32_t id) { streamed.push_back(id); }, stop);
+    TITAN_EXPECT(got == want);
+    TITAN_EXPECT(streamed ==
+                 std::vector<std::int32_t>(want.begin() + p, want.end()));
+
+    Rng free_rng(11);
+    TITAN_EXPECT(generate_naive(m, kPrompt, 10, config, free_rng) == free_run);
+    Rng rng(11);
+    std::vector<std::int32_t> naive_streamed;
+    const std::vector<std::int32_t> naive = generate_naive(
+        m, kPrompt, 10, config, rng,
+        [&](std::int32_t id) { naive_streamed.push_back(id); }, stop);
+    TITAN_EXPECT(naive == want);
+    TITAN_EXPECT(naive_streamed == streamed);
+}

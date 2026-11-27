@@ -59,6 +59,7 @@ Blocks may have different `n_kv_heads` and head sizes, so the cache keeps a shap
 
 1. **Prefill.** Clear the cache (`L = 0`) and run the last `min(len, C)` prompt tokens in one forward at `p₀ = 0`, then set `L` to that count. A prompt longer than `C` is fed by its tail, because no position may reach `C`; the returned sequence still starts with the whole prompt. Sample the first new token from the last row of the logits.
 2. **Decode.** Append the sampled token, call `on_token` with it, and, unless it was the last one, run it alone (`T = 1`) at `p₀ = L`, set `L ← L + 1` and sample the next token from the single row of logits.
+3. **Stop.** When a `stop_id` is given (the tokenizer's end-of-text id) and the sampled token equals it, generation ends at once: the stop token is neither appended nor passed to `on_token`, so fewer than `N` tokens may come back. Without a `stop_id` the loop is unchanged.
 
 Each forward goes through one helper that sets `pos_offset = L`, runs the model, advances the length to `L + T` and samples from row `T − 1`. The logits are copied to the host for sampling, since the sampler runs on host floats.
 

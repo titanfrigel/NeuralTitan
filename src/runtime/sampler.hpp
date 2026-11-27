@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <functional>
+#include <optional>
 #include <span>
 #include <vector>
 
@@ -48,11 +49,14 @@ std::vector<std::int32_t> generate_naive(model::Model& model,
 // The same with the full sampling controls: each new token is
 // sample(last position's logits, config, rng), and on_token (when set) is
 // called once per new token, in order, as soon as it is sampled. With
-// {temperature, 0, 1} it equals the overload above. Throws titan::Error for
-// an empty prompt, a negative n_new or an invalid config.
+// {temperature, 0, 1} it equals the overload above. With a stop_id,
+// generation ends as soon as that token is sampled, which is neither appended
+// nor passed to on_token. Throws titan::Error for an empty prompt, a negative
+// n_new or an invalid config.
 std::vector<std::int32_t> generate_naive(
     model::Model& model, std::vector<std::int32_t> prompt, std::int64_t n_new,
     const SamplerConfig& config, Rng& rng,
-    const std::function<void(std::int32_t)>& on_token = {});
+    const std::function<void(std::int32_t)>& on_token = {},
+    std::optional<std::int32_t> stop_id = {});
 
 }  // namespace titan::runtime

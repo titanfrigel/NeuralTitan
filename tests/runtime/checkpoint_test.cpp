@@ -1,5 +1,6 @@
 #include <cstdint>
 #include <filesystem>
+#include <memory>
 #include <string>
 #include <utility>
 #include <vector>
@@ -10,6 +11,7 @@
 #include "core/tensor.hpp"
 #include "harness/test.hpp"
 #include "io/checkpoint_file.hpp"
+#include "io/file.hpp"
 #include "io/json.hpp"
 #include "model/config.hpp"
 #include "model/model.hpp"
@@ -18,6 +20,8 @@
 #include "runtime/checkpoint.hpp"
 #include "runtime/trainer.hpp"
 #include "support/parity.hpp"
+#include "tokenizer/bpe_tokenizer.hpp"
+#include "tokenizer/tokenizer.hpp"
 
 namespace {
 
@@ -230,7 +234,7 @@ TITAN_TEST(RuntimeCheckpoint, TokenizerMustMatchVocab) {
         R"({"type": "char", "vocab": ["a", "b", "c", "d", "e"]})");
     const std::filesystem::path p = "run/latest.ckpt";
     // Five tokens, as the model expects.
-    TITAN_EXPECT_EQ(titan::runtime::checkpoint_tokenizer(p, c).vocab_size(),
+    TITAN_EXPECT_EQ(titan::runtime::checkpoint_tokenizer(p, c)->vocab_size(),
                     std::int64_t{5});
 
     const auto error = [&](const char* tokenizer_json) {
@@ -252,6 +256,35 @@ TITAN_TEST(RuntimeCheckpoint, TokenizerMustMatchVocab) {
     const std::string malformed = error(R"({"type": "bpe"})");
     TITAN_EXPECT(contains(malformed, p.string()));
     TITAN_EXPECT(contains(malformed, "meta.tokenizer"));
+}
+
+// A BPE tokenizer document round-trips through a checkpoint file and comes
+// back as a tokenizer that encodes like the original.
+TITAN_TEST(RuntimeCheckpoint, StoresBpeTokenizer) {
+    const std::filesystem::path fixtures =
+        std::filesystem::path(TITAN_FIXTURES_DIR) / "bpe";
+    const JsonValue doc =
+        titan::io::parse_json(titan::io::read_file(fixtures / "trained.json"));
+    const auto want = titan::tokenizer::BpeTokenizer::from_json(doc);
+    Model m(llama_style(want.vocab_size(), 16, 1, 2, 1, 8));
+    Rng init(3);
+    m.init(init);
+    Checkpoint c = sample_checkpoint(m);
+    c.tokenizer = doc;
+    const std::filesystem::path p = temp_path("titan_ckpt_bpe.ckpt");
+    save_checkpoint(p, m, c);
+    const Checkpoint header = load_checkpoint(p, nullptr);
+    const std::unique_ptr<titan::tokenizer::Tokenizer> tok =
+        titan::runtime::checkpoint_tokenizer(p, header);
+    TITAN_EXPECT_EQ(tok->vocab_size(), want.vocab_size());
+    TITAN_EXPECT(tok->eos_id() == want.eos_id());
+    const JsonValue cases =
+        titan::io::parse_json(titan::io::read_file(fixtures / "encode.json"));
+    for (const JsonValue& tc : cases.at("cases").as_array()) {
+        const std::string& text = tc.at("text").as_string();
+        TITAN_EXPECT(tok->encode(text) == want.encode(text));
+    }
+    std::filesystem::remove(p);
 }
 
 TITAN_TEST(RuntimeCheckpoint, HeaderBoundsModelSize) {
