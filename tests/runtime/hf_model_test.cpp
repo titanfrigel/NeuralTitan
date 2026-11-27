@@ -251,6 +251,20 @@ TITAN_TEST(HfConfig, RejectsHugeModel) {
         "hidden_size: the sizes imply too many parameters"));
 }
 
+TITAN_TEST(HfConfig, RejectsHugeContext) {
+    // The KV cache allocates context_length rows per layer, so the context
+    // is bounded by kMaxHfContext = 2^20 before anything is allocated.
+    TITAN_EXPECT(config_rejects(
+        [](JsonValue& c) {
+            c.set("max_position_embeddings", JsonValue::number(1048577));
+        },
+        "max_position_embeddings: must be at most 1048576, got 1048577"));
+    JsonValue c = smollm2_config();
+    c.set("max_position_embeddings", JsonValue::number(1048576));
+    TITAN_EXPECT_EQ(parse_hf_llama_config(c).model.context_length,
+                    std::int64_t{1048576});
+}
+
 TITAN_TEST(HfName, Maps) {
     const auto map = [](const char* name) { return hf_to_titan_name(name, 2); };
     TITAN_EXPECT_EQ(map("model.embed_tokens.weight"),

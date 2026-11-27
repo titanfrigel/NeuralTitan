@@ -162,6 +162,11 @@ HfLlamaConfig parse_hf_llama_config(const io::JsonValue& config) {
     }
     const std::int64_t context = f.integer(f.require("max_position_embeddings"),
                                            "max_position_embeddings", 1);
+    if (context > kMaxHfContext) {
+        f.fail(f.path_of("max_position_embeddings"),
+               "must be at most " + std::to_string(kMaxHfContext) + ", got " +
+                   std::to_string(context));
+    }
     const std::int64_t vocab =
         f.integer(f.require("vocab_size"), "vocab_size", 1);
     // Token ids are int32 throughout.

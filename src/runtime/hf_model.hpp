@@ -25,14 +25,19 @@ struct HfLlamaConfig {
 // parameter_count, which only bounds the parameters, is consulted.
 inline constexpr std::int64_t kMaxHfLayers = 4096;
 
+// The longest max_position_embeddings parse_hf_llama_config accepts. The KV
+// cache allocates context_length rows per layer, so an unbounded context in
+// an untrusted config could ask for any amount of memory; SmolLM2 uses 8192.
+inline constexpr std::int64_t kMaxHfContext = std::int64_t{1} << 20;
+
 // Parses and validates a Hugging Face LlamaForCausalLM config.json (the
 // format of transformers 4.x and 5.x). Required:
 //   architectures ["LlamaForCausalLM"], model_type "llama", hidden_size,
 //   intermediate_size, num_attention_heads, num_hidden_layers (at most
-//   kMaxHfLayers), max_position_embeddings, vocab_size, rms_norm_eps, and
-//   bos_token_id and eos_token_id (integers in [0, vocab_size)), plus exactly
-//   one of rope_theta (4.x) or rope_parameters {"rope_type": "default",
-//   "rope_theta": ...} (5.x).
+//   kMaxHfLayers), max_position_embeddings (at most kMaxHfContext), vocab_size,
+//   rms_norm_eps, and bos_token_id and eos_token_id (integers in [0,
+//   vocab_size)), plus exactly one of rope_theta (4.x) or rope_parameters
+//   {"rope_type": "default", "rope_theta": ...} (5.x).
 // Optional, with Hugging Face's defaults: num_key_value_heads
 // (num_attention_heads), tie_word_embeddings (false), and keys that only one
 // value of is supported: hidden_act "silu", attention_bias and mlp_bias false,
