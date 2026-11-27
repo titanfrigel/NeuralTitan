@@ -21,3 +21,7 @@
 *.dll binary
 *.lib binary
 *.pdb binary
+
+# titan generate's expected stdout for the tiny Llama: raw token bytes,
+# including a NUL and invalid UTF-8.
+tests/fixtures/tiny_llama/tied/expected_greedy.txt binary

@@ -20,6 +20,11 @@ C++ parity tests compare against:
 - tests/fixtures/tiny_llama/golden.{json,safetensors}: for each of `tied` and
   `untied` and each of three prompts, the full logits at every prompt position
   and the top-2 logit gap there, plus the greedy continuation;
+- tests/fixtures/tiny_llama/tied/expected_greedy.txt: the bytes that
+  `titan generate --hf-model tests/fixtures/tiny_llama/tied --prompt
+  "the king" --temp 0 --max-new 16` must print to stdout: the prompt, the
+  raw bytes of its greedy tokens (not valid UTF-8, and holding a NUL byte,
+  so .gitattributes marks the file binary) and a newline;
 - tests/fixtures/smollm2/golden.{json,safetensors}: for each of four prompts,
   the last-position logits, the logits of 1024 sampled vocabulary ids at every
   position and the top-2 gap there, plus the greedy continuation.
@@ -73,6 +78,8 @@ SMOLLM2_PROMPTS = [
     "Café au lait, s'il vous plaît. ",
 ]
 TINY_PROMPTS = ["to be or not", "the king", "ROMEO:\n"]
+# The tied prompt whose greedy output expected_greedy.txt holds.
+CLI_PROMPT = "the king"
 
 # The tiny model: two layers, grouped-query attention (4 heads, 2 KV heads)
 # and a vocabulary that matches the trained BPE fixture. initializer_range is
@@ -142,6 +149,36 @@ def write_json(path: pathlib.Path, value) -> None:
                     encoding="utf-8", newline="\n")
 
 
+def bytes_to_unicode() -> dict[int, str]:
+    """GPT-2's byte-level alphabet: the character that stands for each byte.
+
+    Printable bytes stand for themselves; the others take the code points
+    from U+0100 on, in byte order.
+    """
+    printable = (list(range(ord("!"), ord("~") + 1))
+                 + list(range(0xA1, 0xAC + 1))
+                 + list(range(0xAE, 0xFF + 1)))
+    chars = list(printable)
+    extra = 0
+    for b in range(256):
+        if b not in printable:
+            printable.append(b)
+            chars.append(256 + extra)
+            extra += 1
+    return {b: chr(c) for b, c in zip(printable, chars)}
+
+
+def token_bytes(tok: tokenizers.Tokenizer, ids: list[int]) -> bytes:
+    """The raw bytes of byte-level BPE tokens, as titan prints them.
+
+    tokenizers' decode replaces invalid UTF-8 with U+FFFD; titan streams the
+    bytes as they are.
+    """
+    byte_of = {c: b for b, c in bytes_to_unicode().items()}
+    return b"".join(bytes(byte_of[c] for c in tok.id_to_token(i))
+                    for i in ids)
+
+
 def top2_gap(logits: torch.Tensor) -> torch.Tensor:
     """Largest minus second-largest logit along the last dimension."""
     top = torch.topk(logits, 2, dim=-1).values
@@ -200,6 +237,9 @@ def make_tiny_golden() -> None:
                             "greedy_gaps": gaps})
             print(f"tiny/{name} p{i} {text!r}\n  ids={ids}\n  greedy={greedy}"
                   f"\n  text={tok.decode(ids + greedy, skip_special_tokens=False)!r}")
+            if name == "tied" and text == CLI_PROMPT:
+                (TINY_DIR / name / "expected_greedy.txt").write_bytes(
+                    token_bytes(tok, ids + greedy) + b"\n")
         golden[name] = entries
     write_json(TINY_DIR / "golden.json", golden)
     save_file(tensors, str(TINY_DIR / "golden.safetensors"))
