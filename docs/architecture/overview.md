@@ -65,7 +65,7 @@ Library layers, bottom to top:
 | Layer | Responsibility | Technology | ADR |
 | --- | --- | --- | --- |
 | `core` | `Tensor`, `Storage`, `Device`, CUDA caching allocator, seeded RNG, error checking | C++20, CUDA runtime | 0002, 0007 |
-| `io` | JSON parser, safetensors reader, checkpoint binary format, bounds-checked binary reading | C++20 | 0007 |
+| `io` | JSON parser, safetensors reader (`SafetensorsFile`: F32, F16 and BF16 tensors converted to FP32), checkpoint binary format, bounds-checked binary reading | C++20 | 0007 |
 | `tokenizer` | The `Tokenizer` interface and `load_tokenizer`, character tokenizer, byte-level BPE (train, encode, decode, load and save `tokenizer.json`, the end-of-text id), Unicode category tables | C++20 | 0007 |
 | `ops` | Device-dispatching operations; `ops/cpu` reference implementations; `ops/cuda` kernels; GEMM through cuBLAS by default, with own naive and tiled kernels selectable | C++20, CUDA, cuBLAS | 0002, 0005, 0007 |
 | `nn` | `Module`, `Parameter`, Embedding, Linear, RMSNorm, LayerNorm, Attention (GQA, RoPE, KV cache), SwiGLU, GeluMLP, TransformerBlock, LMHead, CrossEntropyLoss | C++20 | 0005 |
@@ -281,6 +281,7 @@ Decisions are recorded as ADRs; see the [decision index](../adr/README.md).
 ### Mitigations
 
 - **T1.** The `io` readers bounds-check every header length, offset and element count against the file size before allocating or reading, and cap header sizes. Tests feed malformed and truncated fixture files and expect a clean `titan::Error`.
+  - Implemented for safetensors in M5: `io::SafetensorsFile::open` reads only the header, capped at 100 MiB and bounded by the file size, then checks every entry (exactly `dtype`, `shape` and `data_offsets`; dtype F32, F16 or BF16; non-negative dimensions whose product fits in int64; a byte range that matches the shape and ends inside the data section) and that the ranges, sorted by offset, tile the data section with no gap or overlap, as the reference `safetensors` library requires. Tensor data is read on demand, one tensor's byte range at a time, never the whole file. Each failure names the file and the tensor or field, and `tests/io/safetensors_test.cpp` covers every check with a malformed file.
 - **T2.** The checkpoint format carries a magic number, format version, total size and per-section checksums, all verified before loading. Checkpoints are written to a temporary file and renamed into place once complete.
   - Implemented in M3: see the [checkpoint format](#checkpoint-format). `titan train --resume` and `titan generate` read only through `runtime::load_checkpoint`, which runs every check before any tensor is used. The resume path also checks the token files against the vocabulary and the saved token counts.
 - **T3.** ADR 0004 names only `torch`, `transformers` and `safetensors`. Versions are pinned by the package manager inside an isolated venv, and nothing from `tools/` is linked into the build.

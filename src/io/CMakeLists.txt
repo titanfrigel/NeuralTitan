@@ -4,7 +4,8 @@ add_library(titan_io STATIC
   file.cpp
   token_file.cpp
   checksum.cpp
-  checkpoint_file.cpp)
+  checkpoint_file.cpp
+  safetensors.cpp)
 
 target_include_directories(titan_io PUBLIC "${PROJECT_SOURCE_DIR}/src")
 target_link_libraries(titan_io PUBLIC titan_core)

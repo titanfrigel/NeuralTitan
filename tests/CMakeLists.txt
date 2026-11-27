@@ -22,6 +22,7 @@ target_sources(titan_tests PRIVATE
   support/parity.cpp
   support/parity_test.cpp
   support/random_text.cpp
+  support/safetensors_writer.cpp
   ops/elementwise_test.cpp
   ops/reduce_test.cpp
   ops/matmul_test.cpp
@@ -55,6 +56,7 @@ target_sources(titan_tests PRIVATE
   io/json_test.cpp
   io/token_file_test.cpp
   io/checkpoint_file_test.cpp
+  io/safetensors_test.cpp
   tokenizer/char_tokenizer_test.cpp
   tokenizer/pretokenizer_test.cpp
   tokenizer/bpe_test.cpp
