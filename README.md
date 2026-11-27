@@ -76,6 +76,24 @@ Checkpoints: every run saves `latest.ckpt` to `--out` every `train.checkpoint_in
 
 The TinyShakespeare corpus is not in the repository: download `input.txt` from [karpathy/char-rnn](https://github.com/karpathy/char-rnn/tree/master/data/tinyshakespeare) to `data/tinyshakespeare/` (git-ignored).
 
+## Training on TinyStories
+
+`configs/tinystories.json` is the M6 run: 8 layers, dim 512, 8 heads with 4 KV heads, SwiGLU, RMSNorm, RoPE, tied embeddings and a 4096-token BPE vocabulary (25,305,600 parameters), 24000 steps of 16384 tokens each (8 x 512 tokens, 4 gradient-accumulation micro-batches). The data is [TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories) V2 (GPT-4), not in the repository; download both files at the pinned revision `f54c09fd23315a6f9c86f9dc80f725de7d8f9c64` to `data/tinystories/` (git-ignored):
+
+- [`TinyStoriesV2-GPT4-train.txt`](https://huggingface.co/datasets/roneneldan/TinyStories/resolve/f54c09fd23315a6f9c86f9dc80f725de7d8f9c64/TinyStoriesV2-GPT4-train.txt), 2,227,753,162 bytes, SHA-256 `6418d412de72888f52b5142c761ac21a582f7d1166f0bfbdb5f03ccfdec90443`.
+- [`TinyStoriesV2-GPT4-valid.txt`](https://huggingface.co/datasets/roneneldan/TinyStories/resolve/f54c09fd23315a6f9c86f9dc80f725de7d8f9c64/TinyStoriesV2-GPT4-valid.txt), 22,502,601 bytes, SHA-256 `6874bae9a4c1a4e7edcf0e53b86c17817e9cf881fc75ff2368da457b80c0585d`.
+
+Then three commands:
+
+```powershell
+./build/release/apps/titan.exe tokenizer train --type bpe --corpus data/tinystories/TinyStoriesV2-GPT4-train.txt --vocab 4096 --out data/tinystories/tokenizer.json
+./build/release/apps/titan.exe tokenizer encode --tokenizer data/tinystories/tokenizer.json --file data/tinystories/TinyStoriesV2-GPT4-train.txt --out data/tinystories/train.bin
+./build/release/apps/titan.exe tokenizer encode --tokenizer data/tinystories/tokenizer.json --file data/tinystories/TinyStoriesV2-GPT4-valid.txt --out data/tinystories/valid.bin
+./build/release/apps/titan.exe train --config configs/tinystories.json --train-tokens data/tinystories/train.bin --val-tokens data/tinystories/valid.bin --tokenizer data/tinystories/tokenizer.json --out runs/tinystories
+```
+
+Expected on the full files: training the tokenizer takes about 166 s, peaks near 2.25 GB of RAM and gives 4096 tokens (3839 merges); encoding gives 558,703,447 training tokens in about 37 s and 5,641,102 validation tokens, both at about 3.99 bytes per token. The run checkpoints to `runs/tinystories/latest.ckpt` every 1000 steps; if it is interrupted, continue it with `titan train --resume runs/tinystories`.
+
 ## Generating text
 
 `titan generate` reads a checkpoint (it needs no other file) and streams text, token by token:
