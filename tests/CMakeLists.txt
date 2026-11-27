@@ -73,6 +73,7 @@ target_sources(titan_tests PRIVATE
   runtime/sampler_test.cpp
   runtime/generator_test.cpp
   runtime/hf_model_test.cpp
+  runtime/golden_test.cpp
 )
 # The CUDA tests call the runtime directly, so they link cudart themselves
 # instead of relying on titan_core, which keeps it private.
