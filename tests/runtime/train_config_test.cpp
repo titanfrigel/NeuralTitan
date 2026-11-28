@@ -1,9 +1,13 @@
 #include <cstdint>
+#include <filesystem>
 #include <string>
 
 #include "core/error.hpp"
 #include "harness/test.hpp"
+#include "io/file.hpp"
 #include "io/json.hpp"
+#include "model/config.hpp"
+#include "model/model.hpp"
 #include "runtime/trainer.hpp"
 
 using titan::runtime::parse_train_config;
@@ -66,4 +70,23 @@ TITAN_TEST(TrainConfig, CheckpointIntervalOptionalAndNonNegative) {
     }
     TITAN_EXPECT(message.find("train.checkpoint_interval") !=
                  std::string::npos);
+}
+
+// configs/tinystories.json is the overnight M6 run: a 25,305,600-parameter
+// model with a 4096-token vocabulary, 16384 tokens per optimizer step.
+TITAN_TEST(Configs, TinyStoriesParses) {
+    const auto path = std::filesystem::path(TITAN_SOURCE_DIR) / "configs" /
+                      "tinystories.json";
+    const auto cfg = titan::io::parse_json(titan::io::read_file(path));
+
+    titan::model::Model model(
+        titan::model::parse_model_config(cfg.at("model"), 4096));
+    TITAN_EXPECT(model.num_parameters() == 25305600);
+
+    const TrainConfig t = parse_train_config(cfg.at("train"));
+    TITAN_EXPECT(t.batch * t.seq * t.grad_accum == 16384);
+    TITAN_EXPECT(t.steps == 24000);
+    TITAN_EXPECT(t.warmup == 1000);
+    TITAN_EXPECT(t.eval_interval == 1000);
+    TITAN_EXPECT(t.checkpoint_interval == 1000);
 }

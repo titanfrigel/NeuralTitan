@@ -52,9 +52,9 @@ scripts/check.ps1
 | `titan --version` | Prints the library version. |
 | `titan info` | Prints the CPU thread count and the CUDA device name, memory and compute capability, or that CUDA is not available. |
 | `titan tokenizer train --type char --corpus <file> --out <tok.json>` | Builds a character tokenizer from a corpus and saves it. |
-| `titan tokenizer train --type bpe --corpus <file> --vocab N --out <tok.json>` | Trains a byte-level BPE tokenizer of at most N tokens (N from 257 to 262144, so that the tokenizer fits the checkpoint's 16 MiB header) and saves it in Hugging Face's `tokenizer.json` layout; prints the vocabulary size, the merge count and the time. |
-| `titan tokenizer encode --tokenizer <tok.json> (--text <s> \| --file <path>) [--summary]` | Encodes text with a character or BPE tokenizer file (ours or a Hugging Face `tokenizer.json`) and prints the ids; `--summary` prints the token count, the CRC-32 of the ids and the bytes per token instead. |
-| `titan train --config <cfg.json> --data <corpus.txt> --out <dir>` | Trains a model, on the GPU when one is available; see [Training a model](#training-a-model). |
+| `titan tokenizer train --type bpe --corpus <file> --vocab N --out <tok.json>` | Trains a byte-level BPE tokenizer of at most N tokens (N from 257 to 262144, so that the tokenizer fits the checkpoint's 16 MiB header; the corpus file may be up to 4 GiB) and saves it in Hugging Face's `tokenizer.json` layout; prints the vocabulary size, the merge count and the time. |
+| `titan tokenizer encode --tokenizer <tok.json> (--text <s> \| --file <path>) [--summary] [--out <tokens.bin>]` | Encodes text with a character or BPE tokenizer file (ours or a Hugging Face `tokenizer.json`), on all cores, and prints the ids; `--summary` prints the token count, the CRC-32 of the ids and the bytes per token instead; `--out` writes the ids to a token file (creating its directory) and prints that summary. A `--file` corpus may be up to 4 GiB. |
+| `titan train --config <cfg.json> (--data <corpus.txt> \| --train-tokens <a.bin> --val-tokens <b.bin> --tokenizer <tok.json>) --out <dir>` | Trains a model, on the GPU when one is available; see [Training a model](#training-a-model). |
 | `titan train --resume <dir>` | Continues the run saved in `<dir>/latest.ckpt`, bit-identical to an uninterrupted run; see [Training a model](#training-a-model). |
 | `titan generate --checkpoint <file> [--prompt <text>]` | Streams text sampled from a trained checkpoint with the KV cache; see [Generating text](#generating-text). |
 | `titan generate --hf-model <dir> [--prompt <text>]` | Streams text sampled from a Hugging Face Llama model directory, such as SmolLM2-135M; see [Generating text](#generating-text). |
@@ -68,11 +68,31 @@ scripts/check.ps1
 ./build/release/apps/titan.exe train --config configs/tiny-shakespeare.json --data data/tinyshakespeare/input.txt --out runs/m1-shakespeare
 ```
 
-Options: `--tokenizer <tok.json>` (use a saved character or BPE tokenizer instead of building a character tokenizer from the corpus; the model's vocabulary size is the tokenizer's), `--steps N` (overrides `train.steps`; `train.warmup` must stay below it), `--device cpu|cuda` (`--device cuda` without a GPU fails with `no CUDA device available`) and `--gemm cublas|naive|tiled` (the CUDA GEMM, cuBLAS by default; any other value needs `--device cuda`). The command writes `tokenizer.json` (when it built one), `train.bin` and `val.bin` (the encoded splits; the last `val_fraction` of the tokens validates), and `sample.txt` (500 tokens sampled at temperature 0.8, which are characters with a character tokenizer) to `--out`, and prints `device` (with the GEMM backend on CUDA), `params`, `time` and `final val_loss`. `titan tokenizer train --type char --corpus <file> --out <tok.json>` builds and saves a character tokenizer on its own.
+Instead of `--data`, `--train-tokens <a.bin> --val-tokens <b.bin>` train on token files written by `titan tokenizer encode --out` (the second one is the validation split, for example an official validation file); they need `--tokenizer`, the tokenizer that encoded them, and cannot be combined with `--data`. Every id is checked against the vocabulary and each file must hold at least `seq + 2` tokens, both before anything is written; `val_fraction` is ignored, and `train.bin` and `val.bin` in `--out` are copies of the two files.
 
-Checkpoints: every run saves `latest.ckpt` to `--out` every `train.checkpoint_interval` steps (500 in `configs/tiny-shakespeare.json`; 0 or absent means only at the end), after the last step, and after the step given by `--stop-at N`, which ends the run there. Each save replaces the previous one atomically. The file holds the configs, the tokenizer, the parameters, the optimizer moments and the data-loader positions. `titan train --resume <dir> [--stop-at N] [--device cpu|cuda] [--gemm ...]` continues that run on the run directory's `train.bin` and `val.bin` and ends exactly where the uninterrupted run would; `--config`, `--data`, `--out`, `--tokenizer` and `--steps` are rejected with it. A run stopped early skips the sample.
+Options: `--tokenizer <tok.json>` (use a saved character or BPE tokenizer instead of building a character tokenizer from the corpus; the model's vocabulary size is the tokenizer's), `--steps N` (overrides `train.steps`; `train.warmup` must stay below it), `--device cpu|cuda` (`--device cuda` without a GPU fails with `no CUDA device available`) and `--gemm cublas|naive|tiled` (the CUDA GEMM, cuBLAS by default; any other value needs `--device cuda`). The command writes `tokenizer.json` (when it built one), `train.bin` and `val.bin` (the encoded splits; with `--data`, the last `val_fraction` of the tokens validates), and `sample.txt` (500 tokens sampled at temperature 0.8, which are characters with a character tokenizer) to `--out`, and prints `device` (with the GEMM backend on CUDA), `params`, `time` and `final val_loss`. `titan tokenizer train --type char --corpus <file> --out <tok.json>` builds and saves a character tokenizer on its own.
+
+Checkpoints: every run saves `latest.ckpt` to `--out` every `train.checkpoint_interval` steps (500 in `configs/tiny-shakespeare.json`; 0 or absent means only at the end), after the last step, and after the step given by `--stop-at N`, which ends the run there. Each save replaces the previous one atomically. The file holds the configs, the tokenizer, the parameters, the optimizer moments and the data-loader positions. `titan train --resume <dir> [--stop-at N] [--device cpu|cuda] [--gemm ...]` continues that run on the run directory's `train.bin` and `val.bin` and ends exactly where the uninterrupted run would; `--config`, `--data`, `--train-tokens`, `--val-tokens`, `--out`, `--tokenizer` and `--steps` are rejected with it. A run stopped early skips the sample.
 
 The TinyShakespeare corpus is not in the repository: download `input.txt` from [karpathy/char-rnn](https://github.com/karpathy/char-rnn/tree/master/data/tinyshakespeare) to `data/tinyshakespeare/` (git-ignored).
+
+## Training on TinyStories
+
+`configs/tinystories.json` is the M6 run: 8 layers, dim 512, 8 heads with 4 KV heads, SwiGLU, RMSNorm, RoPE, tied embeddings and a 4096-token BPE vocabulary (25,305,600 parameters), 24000 steps of 16384 tokens each (8 x 512 tokens, 4 gradient-accumulation micro-batches). The data is [TinyStories](https://huggingface.co/datasets/roneneldan/TinyStories) V2 (GPT-4), not in the repository; download both files at the pinned revision `f54c09fd23315a6f9c86f9dc80f725de7d8f9c64` to `data/tinystories/` (git-ignored):
+
+- [`TinyStoriesV2-GPT4-train.txt`](https://huggingface.co/datasets/roneneldan/TinyStories/resolve/f54c09fd23315a6f9c86f9dc80f725de7d8f9c64/TinyStoriesV2-GPT4-train.txt), 2,227,753,162 bytes, SHA-256 `6418d412de72888f52b5142c761ac21a582f7d1166f0bfbdb5f03ccfdec90443`.
+- [`TinyStoriesV2-GPT4-valid.txt`](https://huggingface.co/datasets/roneneldan/TinyStories/resolve/f54c09fd23315a6f9c86f9dc80f725de7d8f9c64/TinyStoriesV2-GPT4-valid.txt), 22,502,601 bytes, SHA-256 `6874bae9a4c1a4e7edcf0e53b86c17817e9cf881fc75ff2368da457b80c0585d`.
+
+Then train the tokenizer, encode both files, and train:
+
+```powershell
+./build/release/apps/titan.exe tokenizer train --type bpe --corpus data/tinystories/TinyStoriesV2-GPT4-train.txt --vocab 4096 --out data/tinystories/tokenizer.json
+./build/release/apps/titan.exe tokenizer encode --tokenizer data/tinystories/tokenizer.json --file data/tinystories/TinyStoriesV2-GPT4-train.txt --out data/tinystories/train.bin
+./build/release/apps/titan.exe tokenizer encode --tokenizer data/tinystories/tokenizer.json --file data/tinystories/TinyStoriesV2-GPT4-valid.txt --out data/tinystories/valid.bin
+./build/release/apps/titan.exe train --config configs/tinystories.json --train-tokens data/tinystories/train.bin --val-tokens data/tinystories/valid.bin --tokenizer data/tinystories/tokenizer.json --out runs/tinystories
+```
+
+Expected on the full files: training the tokenizer takes about 166 s, peaks near 2.25 GB of RAM and gives 4096 tokens (3839 merges); encoding gives 558,703,447 training tokens in about 37 s and 5,641,102 validation tokens, both at about 3.99 bytes per token. The run checkpoints to `runs/tinystories/latest.ckpt` every 1000 steps; if it is interrupted, continue it with `titan train --resume runs/tinystories`.
 
 ## Generating text
 
@@ -228,6 +248,90 @@ Its first 32 tokens are Hugging Face's reference continuation.
 | CUDA (`--device cuda`) | 82.6, 86.1, 85.5 | 85.5 |
 
 tokens/s is what `titan generate` prints: the 64 generated tokens over the generation time, with the KV cache, excluding loading. Known limitation: the CPU speed is held back by `parallel_for`, which creates its threads on every call, and decoding one token makes about 271 matmul calls (211 in the linear layers and 60 in attention). This is inferred from measurements, not profiled; a thread pool is left for later. The loading and the parity method are explained in the [Hugging Face Llama note](docs/math/hf-llama.md).
+
+## M6 result
+
+`configs/tinystories.json` trained from scratch on TinyStories V2 (GPT-4) with the commands in [Training on TinyStories](#training-on-tinystories), release build, CUDA with cuBLAS, on the same laptop as M5 (RTX 3070 Laptop GPU). The run read 393,216,000 tokens (24000 steps of 16384), 0.70 of an epoch of the 558,703,447 training tokens, and validated on the 5,641,102 tokens of the official validation file (200 batches per evaluation).
+
+| Step | Train loss | Validation loss |
+| --- | --- | --- |
+| 2000 | 1.5975 | 1.6675 |
+| 4000 | 1.5456 | 1.4903 |
+| 6000 | 1.3529 | 1.4113 |
+| 8000 | 1.3584 | 1.3605 |
+| 10000 | 1.3476 | 1.3440 |
+| 12000 | 1.2547 | 1.3007 |
+| 14000 | 1.2252 | 1.2681 |
+| 16000 | 1.2288 | 1.2302 |
+| 18000 | 1.2868 | 1.2172 |
+| 20000 | 1.1886 | 1.1873 |
+| 22000 | 1.2182 | 1.1800 |
+| 24000 | 1.0967 | 1.1665 |
+
+The train loss is the logged step's loss, so it is noisy; the validation loss falls at every evaluation but the last (1.1627 at step 23000). The final validation loss is **1.1665**, against the target of about 1.5, which it passes from step 4000 (1.4903).
+
+| Measure | Value |
+| --- | --- |
+| Wall time | 19,990 s (5 h 33 min), against a budget of about 8 h |
+| Throughput | 19,670 tokens/s averaged over the run; the logged median is 20,263 |
+| Peak VRAM | about 3.5 GB (measured on the 100-step smoke run of this config) |
+| Checkpoint | 303,797,248 bytes (`latest.ckpt`, weights and AdamW state) |
+
+Five samples, each the prompt `Once upon a time` with the default settings (`--temp 0.8 --top-p 0.9`) and seeds 1 to 5:
+
+```powershell
+./build/release/apps/titan.exe generate --checkpoint runs/tinystories/latest.ckpt --prompt "Once upon a time" --seed 1 --device cuda
+```
+
+Seed 1:
+
+> Once upon a time, in a big forest, there was a little bird named Billy. Billy was a nervous bird. He was scared to fly. He was scared of big animals. One day, Billy saw a big bear. The bear was sleeping under a tree. Billy wanted to be friends with the bear.
+>
+> Billy said, "Hello, Mr. Bear. Can we be friends?" The bear opened his eyes and looked at Billy. He said, "I am sorry, little bird. I cannot be friends with you. I am too big to play with you."
+>
+> Billy was sad. He wanted to play with the bear. He thought and thought. Then, he had an idea. "Maybe if I jump high, you can touch me, and I will be your friend."
+>
+> The bear liked the idea. He found a big leaf. Billy said, "Here, Mr. Bear. You can sit on this leaf, and I will touch you." The bear was happy. He sat on the leaf, and Billy could touch him. They became good friends.
+>
+> The moral of the story is: even if you are nervous, you can still make new friends if you try.
+
+Seed 2:
+
+> Once upon a time, there was a little girl named Lily. She loved to eat yummy food. Her favorite food was a big, red apple. Lily's mom would always tell her, "Do not eat that apple, Lily." But Lily did not care.
+>
+> One day, Lily saw a big, red apple on the table. She wanted to eat it. But she remembered her mom's words. She knew her mom would not let her eat the apple. So, Lily thought, "Maybe I can just have a little bite."
+>
+> Lily took a small bite of the apple. But it was not a good apple. It was very bad. It made her feel bad. Lily's mom found out and was very sad. Lily learned that she should always listen to her mom.
+
+Seed 3:
+
+> Once upon a time, there was a little girl named Sue. She was very adventurous. Sue loved to play outside and explore.
+>
+> One day, Sue went on a big adventure. She walked and walked until she found a big tree. She looked up and saw a bird's nest with eggs in it. Sue wanted to take the eggs home.
+>
+> Sue tried to reach the nest, but she was too small. She asked her friend, Tom, for help. Tom said, "I will help you." They found a long stick and used it to get the eggs. The eggs were now in the nest.
+>
+> Sue and Tom were happy. They took the eggs back to the tree. Sue said, "Thank you, Tom." They shared the eggs and had a great day.
+
+Seed 4:
+
+> Once upon a time, there was a little girl named Lily. She loved to play with her toys and have tea parties with her friends. One day, she found a big, fake pot in her room. She had an idea. She thought it would be fun to put the pot on the table and see if her toys could fit inside it.
+>
+> Lily asked her mom if she could put the fake pot on the table. Her mom said, "Yes, but be careful not to put too much." Lily was very happy and started to put her toys in the fake pot. She thought it was a fun game.
+>
+> But when she tried to fit the fake pot on the table, it did not fit. It was too big! Lily was sad. Then, her mom came into the room and saw the big mess. She said, "Don't worry, Lily. We can fix it." They worked together to fix the fake pot. In the end, Lily learned that it is not just for fun, but also for making a big mess.
+
+Seed 5:
+
+> Once upon a time, in a small house, there lived a little girl named Lily. She had a big sister named Emma. They loved to play together.
+>
+> One day, Lily and Emma were playing in the living room. Lily saw a pretty lamp on the table. She wanted to touch it, but Emma said, "No, Lily! Don't touch the lamp!"
+>
+> Lily did not listen to Emma. She touched the lamp and it fell on the floor. The lamp broke into pieces. Lily was very sad and said, "I'm sorry, Emma."
+>
+> Emma said, "It's okay, Lily. We can clean it up." They worked together to put the pieces back on the table. Lily learned to listen to her sister and to be careful with things that can break.
+
+Every sample ends on the end-of-text token, well before `--max-new 500`. They are grammatical, keep their characters, and end with a resolution, with small lapses of logic (seed 3's eggs are "now in the nest" after being taken from it). Generation runs at about 300 tokens/s on CUDA with the KV cache.
 
 ## Documentation
 

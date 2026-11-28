@@ -19,28 +19,31 @@ constexpr int kExitError = 1;
 constexpr int kExitUsage = 2;
 
 int usage() {
-    std::cerr << "usage: titan --version | info\n"
-                 "       titan tokenizer train --type char --corpus <file> "
-                 "--out <tok.json>\n"
-                 "       titan tokenizer train --type bpe --corpus <file> "
-                 "--vocab N --out <tok.json> (N in [257, 262144])\n"
-                 "       titan tokenizer encode --tokenizer <tok.json> "
-                 "(--text <s> | --file <path>) [--summary]\n"
-                 "       titan train --config <cfg.json> --data <corpus.txt> "
-                 "--out <dir> [--tokenizer <tok.json>] [--steps N] "
-                 "[--stop-at N] [--device cpu|cuda] "
-                 "[--gemm cublas|naive|tiled]\n"
-                 "       titan train --resume <dir> [--stop-at N] "
-                 "[--device cpu|cuda] [--gemm cublas|naive|tiled]\n"
-                 "       titan generate --checkpoint <file> [--prompt <text>] "
-                 "[--max-new N] [--temp T] [--top-k K] [--top-p P] [--seed S] "
-                 "[--device cpu|cuda] [--no-cache]\n"
-                 "       titan generate --hf-model <dir> [--prompt <text>] "
-                 "[--max-new N] [--temp T] [--top-k K] [--top-p P] [--seed S] "
-                 "[--device cpu|cuda] [--no-cache] (--seed defaults to 0 "
-                 "here, to the checkpoint's seed with --checkpoint)\n"
-                 "       titan bench matmul [--sizes 256,512,1024,2048,4096] "
-                 "[--repeat 10]\n";
+    std::cerr
+        << "usage: titan --version | info\n"
+           "       titan tokenizer train --type char --corpus <file> "
+           "--out <tok.json>\n"
+           "       titan tokenizer train --type bpe --corpus <file> "
+           "--vocab N --out <tok.json> (N in [257, 262144])\n"
+           "       titan tokenizer encode --tokenizer <tok.json> "
+           "(--text <s> | --file <path>) [--summary] "
+           "[--out <tokens.bin>]\n"
+           "       titan train --config <cfg.json> (--data <corpus.txt> | "
+           "--train-tokens <a.bin> --val-tokens <b.bin>) --out <dir> "
+           "[--tokenizer <tok.json>] [--steps N] "
+           "[--stop-at N] [--device cpu|cuda] "
+           "[--gemm cublas|naive|tiled]\n"
+           "       titan train --resume <dir> [--stop-at N] "
+           "[--device cpu|cuda] [--gemm cublas|naive|tiled]\n"
+           "       titan generate --checkpoint <file> [--prompt <text>] "
+           "[--max-new N] [--temp T] [--top-k K] [--top-p P] [--seed S] "
+           "[--device cpu|cuda] [--no-cache]\n"
+           "       titan generate --hf-model <dir> [--prompt <text>] "
+           "[--max-new N] [--temp T] [--top-k K] [--top-p P] [--seed S] "
+           "[--device cpu|cuda] [--no-cache] (--seed defaults to 0 "
+           "here, to the checkpoint's seed with --checkpoint)\n"
+           "       titan bench matmul [--sizes 256,512,1024,2048,4096] "
+           "[--repeat 10]\n";
     return kExitUsage;
 }
 

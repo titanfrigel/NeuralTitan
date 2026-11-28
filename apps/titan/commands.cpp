@@ -12,6 +12,7 @@
 #include <memory>
 #include <optional>
 #include <string>
+#include <utility>
 #include <vector>
 
 #include "core/device.hpp"
@@ -32,12 +33,19 @@
 #include "runtime/trainer.hpp"
 #include "tokenizer/bpe_trainer.hpp"
 #include "tokenizer/char_tokenizer.hpp"
+#include "tokenizer/encode_chunked.hpp"
 #include "tokenizer/tokenizer.hpp"
 
 namespace titan::cli {
 namespace {
 
 namespace fs = std::filesystem;
+
+// The largest corpus file the commands read. io::read_file's default cap is
+// 1 GiB, below the 2.2 GB TinyStories train file; 4 GiB leaves room for it
+// while still refusing a file that cannot be held in memory twice over.
+// Config and tokenizer files keep the default cap.
+constexpr std::size_t kMaxCorpusBytes = std::size_t{1} << 32;
 
 constexpr std::int64_t kSampleTokens = 500;
 constexpr float kSampleTemperature = 0.8f;
@@ -224,13 +232,10 @@ Device select_device(const Flags& flags) {
     return device;
 }
 
-// A token file of a run directory, with every id checked against the
-// vocabulary (the model does not validate its inputs), and the stream checked
-// against the length and CRC-32 the checkpoint saved for it.
-std::vector<std::int32_t> read_run_tokens(const fs::path& path,
-                                          std::int64_t vocab_size,
-                                          std::int64_t saved_count,
-                                          std::uint32_t saved_crc32) {
+// A token file with every id checked against the vocabulary (the model does
+// not validate its inputs).
+std::vector<std::int32_t> read_checked_tokens(const fs::path& path,
+                                              std::int64_t vocab_size) {
     std::vector<std::int32_t> ids = io::read_token_file(path);
     for (std::size_t i = 0; i < ids.size(); ++i) {
         TITAN_CHECK(ids[i] >= 0 && ids[i] < vocab_size,
@@ -238,6 +243,17 @@ std::vector<std::int32_t> read_run_tokens(const fs::path& path,
                         std::to_string(ids[i]) + ", outside [0, " +
                         std::to_string(vocab_size) + ")");
     }
+    return ids;
+}
+
+// A token file of a run directory, with every id checked against the
+// vocabulary, and the stream checked against the length and CRC-32 the
+// checkpoint saved for it.
+std::vector<std::int32_t> read_run_tokens(const fs::path& path,
+                                          std::int64_t vocab_size,
+                                          std::int64_t saved_count,
+                                          std::uint32_t saved_crc32) {
+    std::vector<std::int32_t> ids = read_checked_tokens(path, vocab_size);
     const auto count = static_cast<std::int64_t>(ids.size());
     const std::uint32_t crc = runtime::token_crc32(ids);
     TITAN_CHECK(count == saved_count && crc == saved_crc32,
@@ -276,7 +292,8 @@ void tokenizer_train(std::span<const std::string_view> args) {
         if (vocab < kMinBpeVocab || vocab > kMaxBpeVocab) throw UsageError{};
     }
 
-    const std::string corpus = io::read_file(flags.at("corpus"));
+    const std::string corpus =
+        io::read_file(flags.at("corpus"), kMaxCorpusBytes);
     const fs::path out = flags.at("out");
     if (type == "char") {
         const auto tok = tokenizer::CharTokenizer::build(corpus);
@@ -298,19 +315,27 @@ void tokenizer_train(std::span<const std::string_view> args) {
 }
 
 void tokenizer_encode(std::span<const std::string_view> args) {
-    const Flags flags = parse_flags(args, {"tokenizer", "text", "file"},
+    const Flags flags = parse_flags(args, {"tokenizer", "text", "file", "out"},
                                     {"tokenizer"}, {"summary"});
     // Exactly one source of text.
     if (flags.contains("text") == flags.contains("file")) throw UsageError{};
 
     const std::unique_ptr<tokenizer::Tokenizer> tok =
         read_tokenizer(flags.at("tokenizer"));
-    const std::string text = flags.contains("text")
-                                 ? flags.at("text")
-                                 : io::read_file(flags.at("file"));
-    const std::vector<std::int32_t> ids = tok->encode(text);
+    const std::string text =
+        flags.contains("text")
+            ? flags.at("text")
+            : io::read_file(flags.at("file"), kMaxCorpusBytes);
+    const std::vector<std::int32_t> ids = tokenizer::encode_chunked(*tok, text);
 
-    if (!flags.contains("summary")) {
+    // With --out the ids go to a token file and only the summary is printed.
+    const bool to_file = flags.contains("out");
+    if (to_file) {
+        const fs::path out = flags.at("out");
+        make_parent_dir(out);
+        io::write_token_file(out, ids);
+    }
+    if (!to_file && !flags.contains("summary")) {
         for (std::size_t i = 0; i < ids.size(); ++i) {
             if (i > 0) std::cout << ' ';
             std::cout << ids[i];
@@ -381,19 +406,23 @@ void run_training(runtime::Trainer& trainer, model::Model& model,
     }
 }
 
-// `titan train --config ... --data ... --out ...`: a new run.
+// `titan train --config ... (--data ... | --train-tokens ... --val-tokens ...)
+// --out ...`: a new run.
 void train_new(const Flags& flags, Device device,
                std::optional<std::int64_t> stop_at) {
     std::optional<std::int64_t> steps;
     if (flags.contains("steps")) steps = parse_steps(flags.at("steps"));
 
     const fs::path out = flags.at("out");
+    const bool from_tokens = flags.contains("train-tokens");
     const io::JsonValue config =
         io::parse_json(io::read_file(flags.at("config")));
-    const std::string corpus = io::read_file(flags.at("data"));
+    std::string corpus = from_tokens
+                             ? std::string()
+                             : io::read_file(flags.at("data"), kMaxCorpusBytes);
 
     // Everything that can fail on bad input runs before anything is written
-    // or any training starts: config sections, --stop-at, tokenizer, corpus
+    // or any training starts: config sections, --stop-at, tokenizer, token
     // split, model and trainer.
 
     // 1. The tokenizer: loaded, or built from the corpus (and saved below).
@@ -414,37 +443,71 @@ void train_new(const Flags& flags, Device device,
     tc.device = device;
     check_stop_at(stop_at, 0, tc.steps);
 
-    // 2. Encode once; the last val_fraction of the tokens validates.
-    std::vector<std::int32_t> tokens = tok->encode(corpus);
-    const auto n = static_cast<std::int64_t>(tokens.size());
+    // 2. The two token streams. Token files are used as they are (val_fraction
+    // does not apply), each checked to hold at least seq + 2 tokens. A corpus
+    // is encoded once; its last val_fraction of the tokens validates.
     const std::int64_t min_split = tc.seq + 2;
-    const std::int64_t n_val = std::max(
-        min_split, static_cast<std::int64_t>(
-                       std::floor(static_cast<double>(n) * tc.val_fraction)));
-    TITAN_CHECK(n - n_val >= min_split,
-                "the corpus has " + std::to_string(n) +
-                    " tokens, too few for a training split and a validation "
-                    "split of at least seq + 2 = " +
-                    std::to_string(min_split) + " tokens each");
-    const std::vector<std::int32_t> train_tokens(tokens.begin(),
-                                                 tokens.end() - n_val);
-    const std::vector<std::int32_t> val_tokens(tokens.end() - n_val,
-                                               tokens.end());
+    std::vector<std::int32_t> train_tokens;
+    std::vector<std::int32_t> val_tokens;
+    if (from_tokens) {
+        const std::int64_t vocab = tok->vocab_size();
+        const std::pair<const char*, std::vector<std::int32_t>*> splits[] = {
+            {"train", &train_tokens}, {"val", &val_tokens}};
+        for (const auto& [name, ids] : splits) {
+            const std::string flag = std::string(name) + "-tokens";
+            *ids = read_checked_tokens(flags.at(flag), vocab);
+            TITAN_CHECK(static_cast<std::int64_t>(ids->size()) >= min_split,
+                        "--" + flag + " " + flags.at(flag) + " has " +
+                            std::to_string(ids->size()) +
+                            " tokens, too few for a " + name +
+                            " split of at least seq + 2 = " +
+                            std::to_string(min_split) + " tokens");
+        }
+    } else {
+        const std::vector<std::int32_t> tokens =
+            tokenizer::encode_chunked(*tok, corpus);
+        // The text is no longer needed (the tokenizer, if built from it, is
+        // done); release it so a large corpus is not held for the whole run.
+        std::string().swap(corpus);
+        const auto n = static_cast<std::int64_t>(tokens.size());
+        const std::int64_t n_val =
+            std::max(min_split, static_cast<std::int64_t>(std::floor(
+                                    static_cast<double>(n) * tc.val_fraction)));
+        TITAN_CHECK(n - n_val >= min_split,
+                    "the corpus has " + std::to_string(n) +
+                        " tokens, too few for a training split and a "
+                        "validation split of at least seq + 2 = " +
+                        std::to_string(min_split) + " tokens each");
+        train_tokens.assign(tokens.begin(), tokens.end() - n_val);
+        val_tokens.assign(tokens.end() - n_val, tokens.end());
+    }
 
     // 3. The model and the trainer (which checks seq against context_length).
     model::Model model(
         model::parse_model_config(config.at("model"), tok->vocab_size()));
     Rng init_rng(tc.seed);
     model.init(init_rng);
-    runtime::Trainer trainer(model, tc, train_tokens, val_tokens, std::cout);
+    // Token files are moved into the trainer; the --data split is written to
+    // the run directory below, so the trainer gets copies of it.
+    runtime::Trainer trainer(
+        model, tc, from_tokens ? std::move(train_tokens) : train_tokens,
+        from_tokens ? std::move(val_tokens) : val_tokens, std::cout);
 
-    // 4. Only now write the outputs, then train.
+    // 4. Only now write the outputs, then train. --resume reads train.bin and
+    // val.bin, so token files are copied into the run directory unchanged.
     fs::create_directories(out);
     if (!load_tokenizer) {
         io::write_file(out / "tokenizer.json", io::to_json(tok->to_json()));
     }
-    io::write_token_file(out / "train.bin", train_tokens);
-    io::write_token_file(out / "val.bin", val_tokens);
+    if (from_tokens) {
+        fs::copy_file(flags.at("train-tokens"), out / "train.bin",
+                      fs::copy_options::overwrite_existing);
+        fs::copy_file(flags.at("val-tokens"), out / "val.bin",
+                      fs::copy_options::overwrite_existing);
+    } else {
+        io::write_token_file(out / "train.bin", train_tokens);
+        io::write_token_file(out / "val.bin", val_tokens);
+    }
     run_training(trainer, model, *tok, tc, out, stop_at);
 }
 
@@ -491,18 +554,30 @@ void train(std::span<const std::string_view> args) {
     const Flags flags =
         parse_flags(args,
                     {"config", "data", "out", "tokenizer", "steps", "device",
-                     "gemm", "resume", "stop-at"},
+                     "gemm", "resume", "stop-at", "train-tokens", "val-tokens"},
                     {});
     const bool resume = flags.contains("resume");
     if (resume) {
         // The run directory supplies everything these would set.
-        for (const char* name :
-             {"config", "data", "out", "tokenizer", "steps"}) {
+        for (const char* name : {"config", "data", "out", "tokenizer", "steps",
+                                 "train-tokens", "val-tokens"}) {
             if (flags.contains(name)) throw UsageError{};
         }
     } else {
-        for (const char* name : {"config", "data", "out"}) {
+        for (const char* name : {"config", "out"}) {
             if (!flags.contains(name)) throw UsageError{};
+        }
+        // Exactly one source: --data, or both token files (which need the
+        // tokenizer they were encoded with).
+        const bool tokens =
+            flags.contains("train-tokens") || flags.contains("val-tokens");
+        if (tokens) {
+            if (flags.contains("data") || !flags.contains("train-tokens") ||
+                !flags.contains("val-tokens") || !flags.contains("tokenizer")) {
+                throw UsageError{};
+            }
+        } else if (!flags.contains("data")) {
+            throw UsageError{};
         }
     }
     std::optional<std::int64_t> stop_at;
