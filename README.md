@@ -2,6 +2,21 @@
 
 A from-scratch C++/CUDA library for building, training and running modern decoder-only LLMs (Llama-style: RMSNorm, RoPE, SwiGLU, grouped-query attention), with no third-party libraries apart from cuBLAS for matrix multiplication. It is written to be read: every operation, gradient and kernel is visible in project code and explained in a math note.
 
+## Results
+
+All six milestones are complete. Measured on a laptop with an RTX 3070 Laptop GPU and an Intel Core i7-11800H, FP32 throughout:
+
+| Milestone | What it shows | Headline result |
+| --- | --- | --- |
+| [M1](#m1-result) | Training from scratch on the CPU | TinyShakespeare, 0.73M parameters: validation loss 1.56 in 14.7 min |
+| [M2](#m2-result) | CUDA backend, every kernel checked against the CPU | The same run in 29.6 s (30× faster), with the same losses to four decimals |
+| [M3](#m3-result) | Checkpoints and KV-cached generation | A stopped and resumed run is bit-identical to an uninterrupted one |
+| [M4](#m4-result) | Byte-level BPE tokenizer | Reproduces SmolLM2's Hugging Face token ids exactly on the whole corpus |
+| [M5](#m5-result) | Loading a real model | SmolLM2-135M logits within 4.9e-6 (relative) of Hugging Face; first 32 greedy tokens identical on every prompt |
+| [M6](#m6-result) | Training a real small model | 25.3M-parameter Llama on TinyStories: validation loss 1.17 in 5 h 33 min, writing coherent short stories |
+
+The only third-party library is cuBLAS, used for matrix multiplication; the project's own naive and tiled GEMM kernels remain selectable. Every module has a hand-written backward pass checked by finite differences, and every op family has a [math note](docs/math/).
+
 ## Purpose
 
 Frameworks hide how an LLM actually works. NeuralTitan implements every part from first principles, so you can follow a model from text to tokens, through attention and MLPs, back through the gradients, and out through sampling. The parts it covers:
